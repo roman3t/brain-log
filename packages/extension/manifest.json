@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "brain-log",
+  "version": "1.0.0",
+  "description": "Captura notas, vibes y aprendizajes directo desde el browser",
+  "permissions": ["activeTab", "storage", "contextMenus"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "brain-log"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}

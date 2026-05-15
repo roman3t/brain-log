@@ -6,17 +6,20 @@ import os from 'os'
 dotenv.config({ path: path.join(os.homedir(), '.brain-log', '.env') })
 dotenv.config({ path: path.resolve(process.cwd(), '.env') })
 
+// Getters so values are read from process.env at call time, not at import time
 export const config = {
-  anthropic: {
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
+  get anthropic() {
+    return { apiKey: process.env.ANTHROPIC_API_KEY || '' }
   },
-  notion: {
-    token: process.env.NOTION_TOKEN || '',
-    databases: {
-      captures: process.env.NOTION_CAPTURES_DB || '',
-      recaps: process.env.NOTION_RECAPS_DB || '',
-      dailyLog: process.env.NOTION_DAILY_LOG_DB || '',
-    },
+  get notion() {
+    return {
+      token: process.env.NOTION_TOKEN || '',
+      databases: {
+        captures: process.env.NOTION_CAPTURES_DB || '',
+        recaps: process.env.NOTION_RECAPS_DB || '',
+        dailyLog: process.env.NOTION_DAILY_LOG_DB || '',
+      },
+    }
   },
 }
 
