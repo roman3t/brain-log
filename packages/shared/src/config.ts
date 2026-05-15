@@ -43,6 +43,19 @@ export function validateConfig() {
   }
 }
 
+export function validateTaskConfig() {
+  const missing: string[] = []
+  if (!config.notion.token) missing.push('NOTION_TOKEN')
+  if (!config.notion.databases.tasks) missing.push('NOTION_TASKS_DB')
+  if (!config.jira.host) missing.push('JIRA_HOST')
+  if (!config.jira.email) missing.push('JIRA_EMAIL')
+  if (!config.jira.token) missing.push('JIRA_API_TOKEN')
+
+  if (missing.length > 0) {
+    throw new Error(`Missing env vars: ${missing.join(', ')}`)
+  }
+}
+
 export function validateAnthropicConfig() {
   if (!config.anthropic.apiKey) {
     throw new Error('ANTHROPIC_API_KEY no configurado — necesario para brain recap')

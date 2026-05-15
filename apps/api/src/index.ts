@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import * as dotenv from 'dotenv'
 import path from 'path'
-import { validateConfig, saveCapture, getCapturesForToday, generateRecap, saveRecap, getJiraIssueDetail, upsertTrackedTask } from '@brain-log/shared'
+import { validateConfig, validateTaskConfig, saveCapture, getCapturesForToday, generateRecap, saveRecap, getJiraIssueDetail, upsertTrackedTask } from '@brain-log/shared'
 import type { CaptureType, CaptureSource } from '@brain-log/shared'
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') })
@@ -100,7 +100,7 @@ app.post('/recap', auth, async (_req, res) => {
 // Body: { issueKey }
 app.post('/task', auth, async (req, res) => {
   try {
-    validateConfig()
+    validateTaskConfig()
     const { issueKey } = req.body
     if (!issueKey || typeof issueKey !== 'string') {
       res.status(400).json({ error: 'issueKey is required' })
