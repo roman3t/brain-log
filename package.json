@@ -1,0 +1,10 @@
+{
+  "name": "brain-log",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter api dev",
+    "dev:cli": "pnpm --filter cli dev",
+    "build": "pnpm --filter shared build && pnpm --filter cli build"
+  }
+}
