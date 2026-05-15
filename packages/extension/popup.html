@@ -153,6 +153,19 @@
     <button class="tab" data-tab="settings">Config</button>
   </div>
 
+  <!-- JIRA DETECTED BANNER -->
+  <div id="jira-banner" style="display:none; padding:10px 16px; background:#1a1a2e; border-bottom:1px solid #2a2a4a;">
+    <div style="font-size:11px; color:#a78bfa; margin-bottom:6px;">🎯 Jira detectado</div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span id="jira-issue-key" style="font-size:12px; font-weight:600; color:#e8e8e8; font-family:monospace;"></span>
+      <span id="jira-issue-title" style="font-size:11px; color:#888; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+    </div>
+    <button id="add-task-btn" style="margin-top:8px; width:100%; padding:6px; background:#1e1b4b; color:#a78bfa; border:1px solid #a78bfa; border-radius:6px; font-size:11px; cursor:pointer;">
+      + Agregar a Tasks en Notion
+    </button>
+    <div id="jira-toast" style="font-size:11px; margin-top:6px; display:none;"></div>
+  </div>
+
   <!-- CAPTURE TAB -->
   <div id="tab-capture" class="body">
     <div class="selected-text" id="selected-preview">

@@ -3,7 +3,8 @@
   "name": "brain-log",
   "version": "1.0.0",
   "description": "Captura notas, vibes y aprendizajes directo desde el browser",
-  "permissions": ["activeTab", "storage", "contextMenus"],
+  "permissions": ["activeTab", "storage", "contextMenus", "tabs"],
+  "host_permissions": ["https://*.ngrok-free.app/*", "https://*.ngrok-free.dev/*", "https://*.ngrok.io/*", "http://localhost/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "brain-log"

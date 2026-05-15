@@ -21,6 +21,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiSecret || 'brain-log-secret',
+        'ngrok-skip-browser-warning': 'true',
       },
       body: JSON.stringify({ type: 'note', raw: text, source: 'browser' }),
     })

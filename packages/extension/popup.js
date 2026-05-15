@@ -16,6 +16,75 @@ chrome.storage.sync.get(['apiUrl', 'apiSecret'], ({ apiUrl, apiSecret }) => {
   checkHealth(apiUrl, apiSecret)
 })
 
+// ── Jira detection ──────────────────────────────────────────────
+chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+  const url = tabs[0]?.url || ''
+  const match = url.match(/(?:\/browse\/|[?&]selectedIssue=)([A-Z]+-\d+)/)
+  if (!match) return
+
+  const issueKey = match[1]
+  const banner = document.getElementById('jira-banner')
+  const keyEl = document.getElementById('jira-issue-key')
+  const titleEl = document.getElementById('jira-issue-title')
+
+  keyEl.textContent = issueKey
+  banner.style.display = 'block'
+
+  // Try to get title from page title
+  if (tabs[0]?.title) {
+    const pageTitle = tabs[0].title.replace(/\[.*?\]/, '').replace(issueKey, '').trim().replace(/^[-–—\s]+/, '')
+    titleEl.textContent = pageTitle
+  }
+
+  document.getElementById('add-task-btn').addEventListener('click', async () => {
+    const { apiUrl, apiSecret } = await new Promise(res =>
+      chrome.storage.sync.get(['apiUrl', 'apiSecret'], res)
+    )
+    if (!apiUrl) {
+      showJiraToast('Configura la API URL primero', 'error')
+      return
+    }
+    const btn = document.getElementById('add-task-btn')
+    btn.disabled = true
+    btn.textContent = 'Guardando...'
+    try {
+      const res = await fetch(`${apiUrl}/task`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiSecret || 'brain-log-secret',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({ issueKey }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        btn.textContent = '✓ Guardado en Notion'
+        btn.style.background = '#14532d'
+        btn.style.borderColor = '#4ade80'
+        btn.style.color = '#4ade80'
+        if (data.issue?.title) titleEl.textContent = data.issue.title
+      } else {
+        btn.disabled = false
+        btn.textContent = '+ Agregar a Tasks en Notion'
+        showJiraToast(data.error || 'Error al guardar', 'error')
+      }
+    } catch {
+      btn.disabled = false
+      btn.textContent = '+ Agregar a Tasks en Notion'
+      showJiraToast('No se pudo conectar con la API', 'error')
+    }
+  })
+})
+
+function showJiraToast(msg, type) {
+  const el = document.getElementById('jira-toast')
+  el.textContent = msg
+  el.style.display = 'block'
+  el.style.color = type === 'error' ? '#f87171' : '#4ade80'
+  setTimeout(() => { el.style.display = 'none' }, 3000)
+}
+
 // ── Load selected text from content script ──────────────────────
 chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
   if (!tabs[0]?.id) return
@@ -36,8 +105,9 @@ chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
 async function checkHealth(apiUrl, apiSecret) {
   const dot = document.getElementById('status')
   if (!apiUrl) return
+  dot.classList.remove('ok', 'err')
   try {
-    const res = await fetch(`${apiUrl}/health`)
+    const res = await fetch(`${apiUrl}/health`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
     dot.classList.add(res.ok ? 'ok' : 'err')
   } catch {
     dot.classList.add('err')
@@ -73,6 +143,7 @@ document.getElementById('save-btn').addEventListener('click', async () => {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiSecret || 'brain-log-secret',
+        'ngrok-skip-browser-warning': 'true',
       },
       body: JSON.stringify({ type, raw, source: 'browser' }),
     })

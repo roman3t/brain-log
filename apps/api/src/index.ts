@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import * as dotenv from 'dotenv'
 import path from 'path'
-import { validateConfig, saveCapture, getCapturesForToday, generateRecap, saveRecap } from '@brain-log/shared'
+import { validateConfig, saveCapture, getCapturesForToday, generateRecap, saveRecap, getJiraIssueDetail, upsertTrackedTask } from '@brain-log/shared'
 import type { CaptureType, CaptureSource } from '@brain-log/shared'
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') })
@@ -90,6 +90,25 @@ app.post('/recap', auth, async (_req, res) => {
     const id = await saveRecap({ date: today, ...recap })
 
     res.json({ ok: true, id, recap })
+  } catch (e: any) {
+    console.error(e)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── POST /task ──────────────────────────────────────────────────
+// Body: { issueKey }
+app.post('/task', auth, async (req, res) => {
+  try {
+    validateConfig()
+    const { issueKey } = req.body
+    if (!issueKey || typeof issueKey !== 'string') {
+      res.status(400).json({ error: 'issueKey is required' })
+      return
+    }
+    const issue = await getJiraIssueDetail(issueKey.toUpperCase())
+    await upsertTrackedTask(issue)
+    res.json({ ok: true, issue })
   } catch (e: any) {
     console.error(e)
     res.status(500).json({ error: e.message })

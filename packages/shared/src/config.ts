@@ -11,6 +11,13 @@ export const config = {
   get anthropic() {
     return { apiKey: process.env.ANTHROPIC_API_KEY || '' }
   },
+  get jira() {
+    return {
+      host: process.env.JIRA_HOST || '',
+      email: process.env.JIRA_EMAIL || '',
+      token: process.env.JIRA_API_TOKEN || '',
+    }
+  },
   get notion() {
     return {
       token: process.env.NOTION_TOKEN || '',
@@ -18,6 +25,7 @@ export const config = {
         captures: process.env.NOTION_CAPTURES_DB || '',
         recaps: process.env.NOTION_RECAPS_DB || '',
         dailyLog: process.env.NOTION_DAILY_LOG_DB || '',
+        tasks: process.env.NOTION_TASKS_DB || '',
       },
     }
   },
