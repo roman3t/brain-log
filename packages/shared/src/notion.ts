@@ -132,8 +132,22 @@ export async function setupTasksDatabase(parentPageId: string): Promise<string> 
   return db.id.replace(/-/g, '')
 }
 
+function toNotionBlocks(text: string): any[] {
+  if (!text) return []
+  return text
+    .split('\n')
+    .filter(line => line.trim())
+    .map(line => ({
+      object: 'block',
+      type: 'paragraph',
+      paragraph: {
+        rich_text: [{ type: 'text', text: { content: line.slice(0, 2000) } }],
+      },
+    }))
+}
+
 export async function upsertTrackedTask(issue: {
-  id: string; title: string; status: string; priority: string; assignee: string; url: string
+  id: string; title: string; status: string; priority: string; assignee: string; url: string; description?: string
 }): Promise<void> {
   const client = getClient()
   const dbId = config.notion.databases.tasks
@@ -159,10 +173,16 @@ export async function upsertTrackedTask(issue: {
   if (existing.results.length > 0) {
     await (client.pages as any).update({ page_id: existing.results[0].id, properties })
   } else {
-    await client.pages.create({
+    const page = await client.pages.create({
       parent: { database_id: dbId },
       properties: { ...properties, Added: { date: { start: now } } },
-    })
+    }) as any
+    if (issue.description) {
+      const blocks = toNotionBlocks(issue.description)
+      if (blocks.length > 0) {
+        await (client.blocks as any).children.append({ block_id: page.id, children: blocks.slice(0, 100) })
+      }
+    }
   }
 }
 

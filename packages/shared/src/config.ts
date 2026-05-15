@@ -33,7 +33,6 @@ export const config = {
 
 export function validateConfig() {
   const missing: string[] = []
-  if (!config.anthropic.apiKey) missing.push('ANTHROPIC_API_KEY')
   if (!config.notion.token) missing.push('NOTION_TOKEN')
   if (!config.notion.databases.captures) missing.push('NOTION_CAPTURES_DB')
   if (!config.notion.databases.recaps) missing.push('NOTION_RECAPS_DB')
@@ -41,5 +40,11 @@ export function validateConfig() {
 
   if (missing.length > 0) {
     throw new Error(`Missing env vars: ${missing.join(', ')}`)
+  }
+}
+
+export function validateAnthropicConfig() {
+  if (!config.anthropic.apiKey) {
+    throw new Error('ANTHROPIC_API_KEY no configurado — necesario para brain recap')
   }
 }

@@ -7,6 +7,7 @@ import path from 'path'
 import os from 'os'
 import {
   validateConfig,
+  validateAnthropicConfig,
   saveCapture,
   saveRecap,
   getCapturesForToday,
@@ -297,6 +298,7 @@ program
   .action(async () => {
     try {
       validateConfig()
+      validateAnthropicConfig()
 
       const spinner = ora('Leyendo tus capturas de hoy...').start()
       const captures = await getCapturesForToday()

@@ -41,16 +41,12 @@ Responde SOLO en JSON con este formato exacto, sin markdown ni backticks:
     ],
   })
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
 
   try {
     return JSON.parse(text)
   } catch {
-    // fallback si Claude no responde JSON limpio
-    return {
-      whatIDid: text,
-      whatILearned: '',
-      tomorrow: '',
-    }
+    return { whatIDid: text, whatILearned: '', tomorrow: '' }
   }
 }
