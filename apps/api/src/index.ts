@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import * as dotenv from 'dotenv'
 import path from 'path'
-import { validateConfig, validateTaskConfig, saveCapture, getCapturesForToday, generateRecap, saveRecap, getJiraIssueDetail, upsertTrackedTask } from '@brain-log/shared'
+import { validateConfig, validateTaskConfig, saveCapture, getCapturesForToday, generateRecap, saveRecap, getJiraIssueDetail, upsertTrackedTask, getActiveTask } from '@brain-log/shared'
 import type { CaptureType, CaptureSource } from '@brain-log/shared'
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') })
@@ -49,10 +49,12 @@ app.post('/capture', auth, async (req, res) => {
       return
     }
 
+    const activeTask = getActiveTask()
     const id = await saveCapture({
       type,
       raw: raw.trim(),
       source: source as CaptureSource,
+      task: activeTask?.id,
     })
 
     res.json({ ok: true, id })

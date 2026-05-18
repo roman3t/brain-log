@@ -11,6 +11,15 @@ function getClient(): Anthropic {
   return _client
 }
 
+const RECAP_SYSTEM_PROMPT = `Eres un asistente personal de productividad.
+Tu trabajo es analizar las capturas del día de un desarrollador fullstack y generar un recap conciso y útil.
+Responde SOLO en JSON con este formato exacto, sin markdown ni backticks:
+{
+  "whatIDid": "resumen de lo que hizo hoy (2-3 oraciones)",
+  "whatILearned": "qué aprendió o descubrió hoy (1-2 oraciones)",
+  "tomorrow": "sugerencias concretas para mañana basadas en el contexto (1-2 oraciones)"
+}`
+
 export async function generateRecap(captures: Capture[]): Promise<{
   whatIDid: string
   whatILearned: string
@@ -23,16 +32,15 @@ export async function generateRecap(captures: Capture[]): Promise<{
     .join('\n')
 
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: 'claude-haiku-4-5',
     max_tokens: 1000,
-    system: `Eres un asistente personal de productividad. 
-Tu trabajo es analizar las capturas del día de un desarrollador fullstack y generar un recap conciso y útil.
-Responde SOLO en JSON con este formato exacto, sin markdown ni backticks:
-{
-  "whatIDid": "resumen de lo que hizo hoy (2-3 oraciones)",
-  "whatILearned": "qué aprendió o descubrió hoy (1-2 oraciones)",
-  "tomorrow": "sugerencias concretas para mañana basadas en el contexto (1-2 oraciones)"
-}`,
+    system: [
+      {
+        type: 'text',
+        text: RECAP_SYSTEM_PROMPT,
+        cache_control: { type: 'ephemeral' },
+      },
+    ] as any,
     messages: [
       {
         role: 'user',

@@ -52,7 +52,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': apiSecret || 'brain-log-secret',
+          'x-api-key': apiSecret,
           'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({ issueKey }),
@@ -142,7 +142,7 @@ document.getElementById('save-btn').addEventListener('click', async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiSecret || 'brain-log-secret',
+        'x-api-key': apiSecret,
         'ngrok-skip-browser-warning': 'true',
       },
       body: JSON.stringify({ type, raw, source: 'browser' }),

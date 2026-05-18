@@ -186,14 +186,63 @@ export async function upsertTrackedTask(issue: {
   }
 }
 
+export async function appendToTrackedTask(issueKey: string, text: string): Promise<string | null> {
+  const client = getClient()
+  const dbId = config.notion.databases.tasks
+  if (!dbId) return null
+
+  const response = await client.databases.query({
+    database_id: dbId,
+    filter: { property: 'Task ID', rich_text: { equals: issueKey } },
+  })
+
+  if (response.results.length === 0) return null
+
+  const pageId = response.results[0].id
+  const timestamp = new Date().toLocaleString('es-MX', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+
+  await (client.blocks as any).children.append({
+    block_id: pageId,
+    children: [
+      {
+        object: 'block',
+        type: 'callout',
+        callout: {
+          rich_text: [
+            { type: 'text', text: { content: `${timestamp}\n` }, annotations: { bold: true, color: 'default' } },
+            { type: 'text', text: { content: text } },
+          ],
+          icon: { type: 'emoji', emoji: '📝' },
+          color: 'gray_background',
+        },
+      },
+    ],
+  })
+
+  return pageId
+}
+
 export async function getTrackedTasks(): Promise<TrackedTask[]> {
   const client = getClient()
   const dbId = config.notion.databases.tasks
   if (!dbId) return []
 
-  const response = await client.databases.query({ database_id: dbId })
+  const results: any[] = []
+  let cursor: string | undefined
 
-  return response.results.map((page: any) => ({
+  do {
+    const response = await client.databases.query({
+      database_id: dbId,
+      ...(cursor ? { start_cursor: cursor } : {}),
+    })
+    results.push(...response.results)
+    cursor = response.has_more ? (response.next_cursor ?? undefined) : undefined
+  } while (cursor)
+
+  return results.map((page: any) => ({
     notionPageId: page.id,
     taskId: page.properties['Task ID']?.rich_text?.[0]?.plain_text || '',
     title: page.properties.Name?.title?.[0]?.plain_text || '',
@@ -208,16 +257,21 @@ export async function getCapturesForToday(): Promise<Capture[]> {
   const client = getClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const response = await client.databases.query({
-    database_id: config.notion.databases.captures,
-    filter: {
-      property: 'Date',
-      date: { equals: today },
-    },
-    sorts: [{ property: 'Date', direction: 'ascending' }],
-  })
+  const results: any[] = []
+  let cursor: string | undefined
 
-  return response.results.map((page: any) => ({
+  do {
+    const response = await client.databases.query({
+      database_id: config.notion.databases.captures,
+      filter: { property: 'Date', date: { equals: today } },
+      sorts: [{ property: 'Date', direction: 'ascending' }],
+      ...(cursor ? { start_cursor: cursor } : {}),
+    })
+    results.push(...response.results)
+    cursor = response.has_more ? (response.next_cursor ?? undefined) : undefined
+  } while (cursor)
+
+  return results.map((page: any) => ({
     type: page.properties.Type?.select?.name as CaptureType,
     raw: page.properties.Raw?.rich_text?.[0]?.plain_text || '',
     source: page.properties.Source?.select?.name as CaptureSource,

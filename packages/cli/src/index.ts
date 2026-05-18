@@ -20,6 +20,7 @@ import {
   upsertTrackedTask,
   getTrackedTasks,
   setupTasksDatabase,
+  appendToTrackedTask,
 } from '@brain-log/shared'
 
 const program = new Command()
@@ -104,9 +105,10 @@ program
   .option('-c, --clear', 'Limpia la tarea activa')
   .option('-s, --show', 'Muestra los detalles completos del ticket')
   .option('-a, --add', 'Agrega o actualiza el ticket en tu tabla de Notion')
+  .option('-l, --log <text>', 'Agrega una nota de contexto a la página de la tarea en Notion')
   .option('--sync', 'Sincroniza el estado de todas las tareas desde Jira')
   .option('--setup <pageId>', 'Crea la base de datos Tasks en Notion (requiere ID de página)')
-  .action(async (issueKey: string | undefined, textParts: string[], opts: { clear?: boolean; show?: boolean; add?: boolean; sync?: boolean; setup?: string }) => {
+  .action(async (issueKey: string | undefined, textParts: string[], opts: { clear?: boolean; show?: boolean; add?: boolean; log?: string; sync?: boolean; setup?: string }) => {
 
     if (opts.setup) {
       const spinner = ora('Creando base de datos Tasks en Notion...').start()
@@ -123,6 +125,27 @@ program
         console.log(chalk.dim(`   ID: ${dbId}`))
         console.log(chalk.yellow('\n  Agrega también esto a tu .env del proyecto:'))
         console.log(chalk.cyan(`   NOTION_TASKS_DB=${dbId}\n`))
+      } catch (e: any) {
+        spinner.fail(chalk.red(e.message))
+        process.exit(1)
+      }
+      return
+    }
+
+    if (opts.log) {
+      const key = issueKey || getActiveTask()?.id
+      if (!key) {
+        console.log(chalk.red('Especifica un issue key o activa una tarea primero'))
+        process.exit(1)
+      }
+      const spinner = ora(`Agregando nota a ${key}...`).start()
+      try {
+        const pageId = await appendToTrackedTask(key, opts.log)
+        if (!pageId) {
+          spinner.fail(chalk.red(`${key} no está en tu tabla de Notion. Agrégala primero con --add`))
+          process.exit(1)
+        }
+        spinner.succeed(chalk.green(`Nota agregada a ${chalk.cyan(key)} en Notion`))
       } catch (e: any) {
         spinner.fail(chalk.red(e.message))
         process.exit(1)

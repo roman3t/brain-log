@@ -97,14 +97,18 @@ brain recap
 ### Gestión de tareas Jira
 
 ```bash
-brain task GCD-1134            # activar tarea
-brain task GCD-1134 --add      # activar + guardar en tabla Notion Tasks
-brain task GCD-1134 --show     # ver descripción completa + comentarios
-brain task GCD-1134 "nota"     # captura directa vinculada al ticket
-brain task                     # ver tarea activa actual
-brain task --clear             # limpiar tarea activa
-brain task --sync              # sincronizar estados desde Jira
+brain task GCD-1134                        # activar tarea
+brain task GCD-1134 --add                  # activar + guardar en tabla Notion Tasks
+brain task GCD-1134 --show                 # ver descripción completa + comentarios
+brain task GCD-1134 "nota"                 # captura directa vinculada al ticket
+brain task GCD-1134 --log "contexto"       # agrega nota a la página de la tarea en Notion
+brain task --log "contexto"                # igual, usando la tarea activa
+brain task                                 # ver tarea activa actual
+brain task --clear                         # limpiar tarea activa
+brain task --sync                          # sincronizar estados desde Jira
 ```
+
+Cada `--log` agrega un bloque con fecha/hora en la página del ticket en Notion, acumulando el historial de lo trabajado.
 
 ---
 
@@ -141,6 +145,80 @@ Todos los endpoints requieren el header `x-api-key: brain-log-secret`.
 - **Texto seleccionado**: selecciona texto en cualquier página → el popup lo precarga
 - **Click derecho**: selecciona texto → *brain-log: capturar selección*
 - **Jira detectado**: al abrir el popup en un ticket Jira aparece un banner con **+ Agregar a Tasks en Notion**
+
+---
+
+## Integración con Claude Code
+
+Si usas [Claude Code](https://claude.ai/code), puedes integrar brain-log para que Claude tenga siempre el contexto de tu tarea activa y entienda comandos en lenguaje natural.
+
+### 1. Crear `~/.claude/CLAUDE.md`
+
+```bash
+touch ~/.claude/CLAUDE.md
+```
+
+Agrega este contenido:
+
+```markdown
+# Contexto personal
+
+## brain-log (second brain)
+
+Al inicio de cada conversación, lee el estado activo:
+\`\`\`
+~/.brain-log/state.json
+\`\`\`
+
+Si hay `activeTask`, tenla presente: todas las capturas del CLI se vinculan a ese ticket Jira.
+
+### Comandos disponibles (CLI global `brain`)
+
+| Intención del usuario | Comando a ejecutar |
+|---|---|
+| "activa tarea GCD-XXX" / "brain task GCD-XXX" | `brain task GCD-XXX --show` |
+| "agrega GCD-XXX a brain" | `brain task GCD-XXX --add` |
+| "guarda nota en brain" | `brain note "texto"` |
+| "agrega todo en brain" | `brain todo "texto"` |
+| "guarda vibe / prompt en brain" | `brain vibe "texto"` |
+| "aprendí / guarda aprendizaje" | `brain learn "texto"` |
+| "qué hice hoy / capturas de hoy" | `brain today` |
+| "genera recap / resumen del día" | `brain recap` |
+| "tarea activa" | `brain task` |
+| "limpia tarea" | `brain task --clear` |
+| "sync tareas" | `brain task --sync` |
+| "detalle del ticket GCD-XXX" | `brain task GCD-XXX --show` |
+
+### Al activar una tarea
+Cuando el usuario activa una tarea, ejecuta `brain task GCD-XXX --show` para obtener descripción completa y comentarios. Mantén ese contexto durante la conversación.
+```
+
+### 2. Agregar permisos en `~/.claude/settings.json`
+
+Para que Claude ejecute los comandos sin pedir confirmación en cada llamada:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(brain *)",
+      "Read(/Users/TU_USUARIO/.brain-log/*)"
+    ]
+  }
+}
+```
+
+### 3. Uso
+
+En cualquier conversación con Claude Code puedes decir:
+
+```
+brain: estaremos trabajando con la task GCD-1134
+agrega a BRAIN la tarea GCD-1134
+guarda nota en brain: resolví el bug del cherry-pick
+```
+
+Claude leerá el estado activo, traerá el contexto del ticket desde Jira y etiquetará tus capturas automáticamente.
 
 ---
 
