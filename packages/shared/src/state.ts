@@ -13,6 +13,7 @@ export interface ActiveTask {
 
 interface State {
   activeTask?: ActiveTask
+  pinnedTasks?: string[]
 }
 
 function read(): State {
@@ -40,4 +41,22 @@ export function clearActiveTask(): void {
   const state = read()
   delete state.activeTask
   write(state)
+}
+
+export function pinTask(issueKey: string): void {
+  const state = read()
+  const pinned = new Set(state.pinnedTasks || [])
+  pinned.add(issueKey.toUpperCase())
+  write({ ...state, pinnedTasks: [...pinned] })
+}
+
+export function unpinTask(issueKey: string): void {
+  const state = read()
+  const pinned = new Set(state.pinnedTasks || [])
+  pinned.delete(issueKey.toUpperCase())
+  write({ ...state, pinnedTasks: [...pinned] })
+}
+
+export function getPinnedTasks(): string[] {
+  return read().pinnedTasks || []
 }

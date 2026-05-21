@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'">
+  <title>brain-log</title>
+  <style>
+    :root {
+      --bg: #161b22;
+      --surface: #1c2128;
+      --surface2: #22272e;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --radius: 6px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.5;
+      overflow: hidden;
+      user-select: none;
+      -webkit-app-region: drag;
+    }
+
+    .no-drag { -webkit-app-region: no-drag; }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px 9px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-title { font-weight: 600; font-size: 13px; }
+
+    .icon-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 3px 7px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .icon-btn:hover { background: var(--surface2); color: var(--text); }
+
+    /* ── Scrollable content ── */
+    .content {
+      height: calc(100vh - 42px);
+      overflow-y: auto;
+    }
+
+    /* ── Active task ── */
+    .active-task {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .active-task:hover { background: var(--surface); }
+
+    .label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .task-key { color: var(--accent); font-weight: 600; font-size: 11px; }
+
+    .task-title {
+      color: var(--text);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .task-meta { color: var(--muted); font-size: 10px; margin-top: 2px; }
+
+    .task-prs { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+    .pr-row {
+      display: flex; align-items: center; gap: 5px;
+      padding: 2px 4px; border-radius: 3px; cursor: pointer;
+      font-size: 10px; color: var(--muted);
+    }
+    .pr-row:hover { background: var(--surface2); }
+    .pr-status-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+    .pr-merged   { background: #a371f7; }
+    .pr-open     { background: var(--green); }
+    .pr-closed   { background: var(--red); }
+    .dep-success { background: var(--green); }
+    .dep-running { background: var(--yellow); }
+    .dep-failed  { background: var(--red); }
+    .dep-unknown { background: var(--muted); }
+    .pr-branch  { color: var(--accent); font-weight: 600; min-width: 28px; }
+    .pr-title   { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .deploy-divider { border: none; border-top: 1px solid var(--border); margin: 3px 4px; }
+
+    .task-actions { display: flex; gap: 6px; margin-top: 6px; }
+    .task-btn {
+      flex: 1;
+      padding: 4px 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+      text-align: center;
+    }
+    .task-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .task-btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* ── Section ── */
+    .section {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Board columns ── */
+    .col-row {
+      display: flex;
+      align-items: center;
+      padding: 3px 4px;
+      border-radius: 4px;
+      cursor: pointer;
+      gap: 6px;
+    }
+    .col-row:hover { background: var(--surface2); }
+    .col-row.active { background: var(--surface2); }
+
+    .col-name { flex: 1; font-size: 11px; }
+    .col-count { font-size: 11px; font-weight: 600; color: var(--accent); min-width: 18px; text-align: right; }
+
+    .bar-track { width: 56px; height: 3px; background: var(--surface2); border-radius: 2px; flex-shrink: 0; }
+    .bar-fill  { height: 100%; background: var(--accent); border-radius: 2px; }
+
+    /* ── Expanded issues ── */
+    .issues-list { margin-top: 8px; }
+
+    .issue-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 4px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .issue-row:hover { background: var(--surface2); }
+
+    .issue-prio { font-size: 11px; flex-shrink: 0; width: 12px; }
+    .issue-key  { color: var(--accent); font-size: 10px; flex-shrink: 0; min-width: 62px; }
+    .issue-title {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 11px;
+    }
+
+    /* ── Events ── */
+    .event-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 3px 0;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .event-icon { flex-shrink: 0; }
+    .event-text { flex: 1; }
+    .event-time { font-size: 10px; flex-shrink: 0; }
+
+    /* ── Footer ── */
+    .footer { padding: 10px 14px; }
+
+    .btn {
+      width: 100%;
+      padding: 7px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover:not(:disabled) { background: var(--surface); border-color: var(--accent); }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+
+    /* ── Misc ── */
+    .muted { color: var(--muted); font-style: italic; font-size: 11px; }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <span class="header-title">🧠 brain-log</span>
+  <button class="icon-btn no-drag" id="refresh-btn" title="Refrescar">↻</button>
+</div>
+
+<div class="content no-drag">
+
+  <!-- Active task -->
+  <div id="active-task" class="active-task" style="display:none">
+    <div class="label">Tarea activa</div>
+    <div><span class="task-key" id="task-key"></span> <span class="task-status" id="task-status" style="color:var(--muted);font-size:10px"></span></div>
+    <div class="task-title" id="task-title"></div>
+    <div class="task-meta" id="task-meta"></div>
+    <div class="task-prs no-drag" id="task-prs" style="display:none"></div>
+    <div class="task-actions no-drag">
+      <button class="task-btn" id="task-open-btn">↗ Abrir</button>
+      <button class="task-btn" id="task-advance-btn">→ Avanzar</button>
+    </div>
+  </div>
+
+  <!-- Board -->
+  <div class="section">
+    <div class="label" style="margin-bottom:8px">Sprint — mis tickets</div>
+    <div id="board-content"><span class="muted">Cargando...</span></div>
+  </div>
+
+  <!-- Expanded column issues -->
+  <div class="section" id="expanded-section" style="display:none">
+    <div class="label" id="expanded-label"></div>
+    <div class="issues-list" id="expanded-issues"></div>
+  </div>
+
+  <!-- Recent events -->
+  <div class="section">
+    <div class="label" style="margin-bottom:6px">Últimos eventos</div>
+    <div id="events-content"><span class="muted">Cargando...</span></div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <button class="btn no-drag" id="check-btn">Ejecutar deploy-check</button>
+  </div>
+
+</div>
+
+<script>
+  const api = window.brain
+  const PRIO = { Highest: '⬆', High: '↑', Medium: '→', Low: '↓', Lowest: '⬇' }
+  const PIPELINE = ['TO DO', 'DOING', 'TESTING DEV', 'TESTING QA', 'TESTING PROD', 'DEPLOY TO PROD', 'Done']
+
+  let boardData = null
+  let openColumn = null
+
+  // ── Loaders ──────────────────────────────────────────────────
+
+  async function loadAll() {
+    loadActiveTask()
+    loadBoard()
+    loadEvents()
+  }
+
+  let activeTaskData = null
+
+  async function loadActiveTask() {
+    const task = await api.getActiveTask()
+    const el = document.getElementById('active-task')
+    if (!task) { el.style.display = 'none'; activeTaskData = null; return }
+
+    activeTaskData = task
+    document.getElementById('task-key').textContent = task.id
+    document.getElementById('task-title').textContent = task.title
+    document.getElementById('task-meta').textContent = 'Activada ' + timeAgo(task.setAt)
+
+    // Obtener status y PRs del ticket
+    const statusEl = document.getElementById('task-status')
+    const prsEl = document.getElementById('task-prs')
+    try {
+      const info = await api.getTaskStatus(task.id)
+      if (info?.status) {
+        statusEl.textContent = info.status
+        activeTaskData.status = info.status
+        updateAdvanceBtn(info.status)
+      }
+      const hasPRs = info?.prs?.length > 0
+      const hasDeps = info?.deployments?.length > 0
+      if (hasPRs || hasDeps) {
+        prsEl.style.display = 'flex'
+        const prRows = (info.prs || []).map(pr => {
+          const dotClass = pr.status === 'MERGED' ? 'pr-merged' : pr.status === 'OPEN' ? 'pr-open' : 'pr-closed'
+          const icon = pr.status === 'MERGED' ? '✓' : pr.status === 'OPEN' ? '○' : '✕'
+          return `
+            <div class="pr-row" onclick="api.openUrl('${pr.url}')">
+              <span class="pr-status-dot ${dotClass}"></span>
+              <span style="font-size:9px">${icon}</span>
+              <span class="pr-branch">${pr.targetBranch}</span>
+              <span class="pr-title">${pr.title}</span>
+            </div>`
+        }).join('')
+
+        const depRows = (info.deployments || []).map(dep => {
+          const s = (dep.state || '').toLowerCase()
+          const dotClass = s.includes('success') ? 'dep-success'
+            : s.includes('progress') || s.includes('running') || s.includes('pending') ? 'dep-running'
+            : s.includes('fail') ? 'dep-failed' : 'dep-unknown'
+          const icon = s.includes('success') ? '✓'
+            : s.includes('progress') || s.includes('running') ? '⟳'
+            : s.includes('fail') ? '✕' : '○'
+          const label = s.includes('success') ? 'deployed'
+            : s.includes('progress') || s.includes('running') ? 'deploying…'
+            : s.includes('fail') ? 'failed' : dep.state
+          return `
+            <div class="pr-row">
+              <span class="pr-status-dot ${dotClass}"></span>
+              <span style="font-size:9px">${icon}</span>
+              <span class="pr-branch">${dep.environment}</span>
+              <span class="pr-title" style="color:var(--text)">${label}</span>
+              <span style="font-size:9px;color:var(--muted)">${dep.lastUpdated ? timeAgo(dep.lastUpdated) : ''}</span>
+            </div>`
+        }).join('')
+
+        const divider = hasPRs && hasDeps ? '<hr class="deploy-divider">' : ''
+        prsEl.innerHTML = prRows + divider + depRows
+      } else {
+        prsEl.style.display = 'none'
+      }
+    } catch { statusEl.textContent = '' }
+
+    el.style.display = 'block'
+    document.getElementById('task-open-btn').onclick = (e) => { e.stopPropagation(); api.openUrl(task.url) }
+  }
+
+  function updateAdvanceBtn(status) {
+    const btn = document.getElementById('task-advance-btn')
+    const idx = PIPELINE.findIndex(s => s.toLowerCase() === (status || '').toLowerCase())
+    const next = PIPELINE[idx + 1]
+    if (!next || next === 'Done') {
+      btn.textContent = idx >= 0 ? '✓ En ' + status : '→ Avanzar'
+      btn.disabled = !next
+    } else {
+      btn.textContent = `→ ${next}`
+      btn.disabled = false
+    }
+  }
+
+  document.getElementById('task-advance-btn').onclick = async (e) => {
+    e.stopPropagation()
+    if (!activeTaskData?.status) return
+    const btn = document.getElementById('task-advance-btn')
+    const idx = PIPELINE.findIndex(s => s.toLowerCase() === activeTaskData.status.toLowerCase())
+    const next = PIPELINE[idx + 1]
+    if (!next) return
+
+    btn.textContent = '...'
+    btn.disabled = true
+    const result = await api.transitionIssue(activeTaskData.id, next)
+    if (result?.ok) {
+      activeTaskData.status = next
+      document.getElementById('task-status').textContent = next
+      updateAdvanceBtn(next)
+      btn.textContent = '✓'
+      setTimeout(() => { updateAdvanceBtn(next); loadBoard() }, 1500)
+    } else {
+      btn.textContent = '❌'
+      setTimeout(() => updateAdvanceBtn(activeTaskData.status), 2000)
+    }
+  }
+
+  async function loadBoard() {
+    const el = document.getElementById('board-content')
+    const data = await api.getBoard()
+    boardData = data
+
+    if (data.error) {
+      el.innerHTML = `<span class="muted">${data.error}</span>`
+      return
+    }
+
+    const active = data.columns.filter(c => (data.counts[c] || 0) > 0)
+    const max = Math.max(...active.map(c => data.counts[c]), 1)
+
+    el.innerHTML = active.map(col => {
+      const n = data.counts[col]
+      const pct = Math.round((n / max) * 100)
+      const isOpen = openColumn === col
+      return `
+        <div class="col-row ${isOpen ? 'active' : ''}" data-col="${col}" onclick="toggleColumn('${col}')">
+          <span class="col-name">${col}</span>
+          <span class="col-count">${n}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        </div>`
+    }).join('')
+  }
+
+  function toggleColumn(col) {
+    const section = document.getElementById('expanded-section')
+
+    if (openColumn === col) {
+      openColumn = null
+      section.style.display = 'none'
+      document.querySelectorAll('.col-row').forEach(r => r.classList.remove('active'))
+      return
+    }
+
+    openColumn = col
+    document.querySelectorAll('.col-row').forEach(r =>
+      r.classList.toggle('active', r.dataset.col === col))
+
+    const issues = boardData?.grouped[col] || []
+    document.getElementById('expanded-label').textContent = col
+    document.getElementById('expanded-issues').innerHTML = issues.length
+      ? issues.map(i => `
+          <div class="issue-row" onclick="api.openUrl('${i.url}')">
+            <span class="issue-prio">${PRIO[i.priority] || ' '}</span>
+            <span class="issue-key">${i.key}</span>
+            <span class="issue-title">${i.title}</span>
+          </div>`).join('')
+      : '<span class="muted">Sin tickets</span>'
+
+    section.style.display = 'block'
+  }
+
+  async function loadEvents() {
+    const el = document.getElementById('events-content')
+    const events = await api.getRecentEvents()
+
+    if (!events.length) {
+      el.innerHTML = '<span class="muted">Sin eventos recientes</span>'
+      return
+    }
+
+    el.innerHTML = events.map(line => {
+      const back  = line.includes('regresado')
+      const error = line.includes('error')
+      const icon  = back ? '⚠️' : error ? '❌' : '✅'
+      const text  = line.replace(/^\[[\d\-T:.Z+]+\]\s*/, '')
+      const match = line.match(/\d{4}-\d{2}-\d{2}T[^\]]+/)
+      const when  = match ? timeAgo(match[0]) : ''
+      return `
+        <div class="event-row">
+          <span class="event-icon">${icon}</span>
+          <span class="event-text">${text}</span>
+          <span class="event-time">${when}</span>
+        </div>`
+    }).join('')
+  }
+
+  // ── Deploy check button ──────────────────────────────────────
+
+  document.getElementById('check-btn').onclick = async () => {
+    const btn = document.getElementById('check-btn')
+    btn.textContent = 'Ejecutando...'
+    btn.disabled = true
+
+    const result = await api.runDeployCheck()
+
+    if (result.ok) {
+      const lines = (result.output || '').split('\n').filter(Boolean)
+      btn.textContent = lines.length
+        ? `✅ ${lines.length} ticket(s) movido(s)`
+        : '✅ Sin cambios pendientes'
+      btn.style.color = 'var(--green)'
+    } else {
+      btn.textContent = '❌ Error — ver log'
+      btn.style.color = 'var(--red)'
+    }
+
+    setTimeout(() => {
+      btn.textContent = 'Ejecutar deploy-check'
+      btn.style.color = ''
+      btn.disabled = false
+      loadAll()
+    }, 2500)
+  }
+
+  // ── Refresh ──────────────────────────────────────────────────
+
+  document.getElementById('refresh-btn').onclick = loadAll
+  api.onRefresh(loadAll)
+
+  loadAll()
+
+  // ── Utils ────────────────────────────────────────────────────
+
+  function timeAgo(dateStr) {
+    const ms = Date.now() - new Date(dateStr).getTime()
+    const m = Math.floor(ms / 60000)
+    const h = Math.floor(m / 60)
+    const d = Math.floor(h / 24)
+    if (d > 0) return d + 'd'
+    if (h > 0) return h + 'h'
+    if (m > 0) return m + 'm'
+    return 'ahora'
+  }
+</script>
+</body>
+</html>

@@ -100,6 +100,7 @@ brain recap
 brain task GCD-1134                        # activar tarea
 brain task GCD-1134 --add                  # activar + guardar en tabla Notion Tasks
 brain task GCD-1134 --show                 # ver descripción completa + comentarios
+brain task GCD-1134 --status               # ver PRs y deploys del ticket
 brain task GCD-1134 "nota"                 # captura directa vinculada al ticket
 brain task GCD-1134 --log "contexto"       # agrega nota a la página de la tarea en Notion
 brain task --log "contexto"                # igual, usando la tarea activa
@@ -109,6 +110,62 @@ brain task --sync                          # sincronizar estados desde Jira
 ```
 
 Cada `--log` agrega un bloque con fecha/hora en la página del ticket en Notion, acumulando el historial de lo trabajado.
+
+### Tablero Jira
+
+```bash
+brain jira --board          # tablero del sprint activo (tus tickets)
+brain jira --board --all    # tablero completo (todo el equipo)
+brain jira --todo           # picker interactivo de tickets en TO DO
+```
+
+`--board` muestra las columnas activas del sprint (TO DO, DOING, TESTING DEV, TESTING QA, TESTING PROD, DEPLOY TO PROD) con prioridad y labels.
+
+`--todo` permite seleccionar un ticket con flechas y desde el menú:
+- **Asignarme + mover a DOING + activar tarea** — combo completo para empezar a trabajar
+- **Solo asignarme / Mover a columna... / Solo activar**
+- **Ver detalles** — muestra descripción y últimos comentarios y vuelve al menú
+
+### Automatización de deploy
+
+El CLI incluye un comando que mueve tickets automáticamente según el estado de los PRs en GitLab:
+
+```bash
+brain deploy-check
+```
+
+Revisa todos los tickets asignados en el sprint activo y aplica transiciones según reglas `branch:Transición`:
+
+| PR mergeado a | Transición aplicada |
+|---|---|
+| `dev` | Testing Dev |
+| `qa` | Testing QA |
+
+Configurable via `.env`:
+```env
+JIRA_DEPLOY_RULES=dev:Testing Dev,qa:Testing QA,main:Done
+```
+
+#### Cron automático (macOS)
+
+Para que corra cada 5 minutos en segundo plano sin mantener la terminal abierta:
+
+```bash
+# Ya está instalado si seguiste el setup. Para verificar:
+launchctl list | grep brain-log
+
+# Activar manualmente:
+launchctl load ~/Library/LaunchAgents/com.brain-log.deploy-watch.plist
+
+# Desactivar:
+launchctl unload ~/Library/LaunchAgents/com.brain-log.deploy-watch.plist
+
+# Ver log:
+tail -f ~/.brain-log/deploy-watch.log
+```
+
+> **Requisito:** los MRs de deploy deben incluir el issue key en el título para que Jira los linkee automáticamente.
+> Ejemplo: `deploy to qa: GCD-1149, GCD-1152`
 
 ---
 
@@ -243,13 +300,18 @@ brain-log/
 ## Flujo diario
 
 ```bash
-# Mañana: activar la tarea del día
-brain task GCD-1134 --add
+# Mañana: ver qué hay disponible y tomar una tarea
+brain jira --board              # revisar el sprint
+brain jira --todo               # tomar un ticket de TO DO (asignar + mover + activar)
 
 # Durante el día
 brain note "cambié el middleware de autenticación"
 brain todo "escribir tests para el nuevo endpoint"
 brain learn "los hooks de React se ejecutan en orden de definición"
+brain task GCD-1134 --status    # ver si el PR ya fue mergeado
+
+# Al hacer un MR de deploy, incluir el issue key en el título:
+# "deploy to qa: GCD-1134" → Jira lo linkea y el cron mueve el ticket automáticamente
 
 # Al final del día
 brain today         # revisar capturas

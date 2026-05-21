@@ -11,13 +11,15 @@
   },
   "dependencies": {
     "@brain-log/shared": "workspace:*",
-    "commander": "^12.0.0",
+    "@types/inquirer": "8",
     "chalk": "^4.1.2",
-    "ora": "^5.4.1",
-    "dotenv": "^16.4.0"
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.0",
+    "inquirer": "8",
+    "ora": "^5.4.1"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
   }
 }

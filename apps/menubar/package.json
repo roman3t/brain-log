@@ -1,0 +1,21 @@
+{
+  "name": "brain-log-menubar",
+  "version": "1.0.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc && cp src/ui/index.html dist/ui/index.html",
+    "dev": "npm run build && electron .",
+    "start": "electron .",
+    "stop": "pkill -f 'electron.*brain-log' || true",
+    "restart": "npm run stop && sleep 1 && npm start"
+  },
+  "dependencies": {
+    "@brain-log/shared": "workspace:*",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "electron": "^32.0.0",
+    "typescript": "^5.4.0"
+  }
+}
