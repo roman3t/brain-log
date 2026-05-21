@@ -14,6 +14,8 @@ import {
   generateRecap,
   getJiraIssue,
   getJiraIssueDetail,
+  getJiraDeployments,
+  transitionJiraIssue,
   getActiveTask,
   setActiveTask,
   clearActiveTask,
@@ -277,6 +279,37 @@ program
         setActiveTask({ id: issueKey, title: issueKey, url: '', setAt: new Date().toISOString() })
         spinner.warn(chalk.yellow(`Tarea activa: ${issueKey}`) + chalk.dim(' (Jira no configurado, usando solo el ID)'))
       }
+    }
+  })
+
+// ── brain deploy-check ──────────────────────────────────────────
+program
+  .command('deploy-check')
+  .description('Verifica si la tarea activa está en producción y la transiciona')
+  .option('--transition <name>', 'Nombre de la transición a aplicar', process.env.JIRA_DEPLOY_TRANSITION || 'Testing Dev')
+  .option('--env <type>', 'Tipo de environment a detectar', process.env.JIRA_DEPLOY_ENV || 'development')
+  .action(async (opts: { transition: string; env: string }) => {
+    const task = getActiveTask()
+    if (!task) return
+
+    try {
+      const deployments = await getJiraDeployments(task.id)
+      const prod = deployments.find(d => d.environmentType === opts.env && d.state === 'successful')
+
+      if (!prod) return
+
+      const issue = await getJiraIssue(task.id)
+      const targetLower = opts.transition.toLowerCase()
+      const alreadyDone = issue.status.toLowerCase().includes(targetLower) ||
+        ['done', 'deployed', 'listo', 'cerrado', 'closed'].some(s => issue.status.toLowerCase().includes(s))
+      if (alreadyDone) return
+
+      const applied = await transitionJiraIssue(task.id, opts.transition)
+      const ts = new Date().toISOString()
+      console.log(`[${ts}] ${task.id} → ${applied} (desplegado en ${prod.environment})`)
+    } catch (e: any) {
+      console.error(`[${new Date().toISOString()}] deploy-check error: ${e.message}`)
+      process.exit(1)
     }
   })
 
