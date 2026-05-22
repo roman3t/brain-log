@@ -125,13 +125,25 @@ Para usar Notion como provider principal (comportamiento anterior):
 NOTES_DEFAULT=notion
 ```
 
-#### Sincronización manual a Notion
+#### Sincronización
+
+Después de cada captura, brain-log hace `git commit + push` del vault en segundo plano (si el vault tiene remoto configurado) y sincroniza a Notion en segundo plano (si `NOTION_TOKEN` está presente). Ambos son silenciosos y no bloquean.
 
 ```bash
-brain sync                        # sincroniza capturas de hoy al Notion
-brain sync --date 2026-05-20      # sincronizar un día específico
-brain sync --status               # ver journals en el vault local
+brain sync                        # sincroniza capturas de hoy a Notion
+brain sync --date 2026-05-20      # día específico a Notion
 brain sync --notion               # forzar push a Notion (aunque Markdown sea el default)
+brain sync --git                  # forzar git add + commit + push del vault
+brain sync --status               # listar journals en el vault local
+```
+
+Para activar el sync automático entre máquinas, el vault debe ser un repo git:
+
+```bash
+cd ~/brain-vault
+git init
+git remote add origin git@github.com:tu-usuario/brain-vault.git
+git add . && git commit -m "init" && git push -u origin main
 ```
 
 ### Ver el día
@@ -148,29 +160,38 @@ brain recap
 # Lo que hiciste / Lo que aprendiste / Sugerencias para mañana
 ```
 
-### Gestión de tareas Jira
+### Gestión de tareas
 
 ```bash
-brain task GCD-1134                        # activar tarea
+brain task GCD-1134                        # activar tarea (Jira)
 brain task GCD-1134 --add                  # activar + guardar en tabla Notion Tasks
 brain task GCD-1134 --show                 # ver descripción completa + comentarios
 brain task GCD-1134 --status               # ver PRs y deploys del ticket
 brain task GCD-1134 "nota"                 # captura directa vinculada al ticket
 brain task GCD-1134 --log "contexto"       # agrega nota a la página de la tarea en Notion
 brain task --log "contexto"                # igual, usando la tarea activa
-brain task                                 # ver tarea activa actual
-brain task --clear                         # limpiar tarea activa
+brain task                                 # ver tareas activas actuales
+brain task --active                        # listar todas las tareas activas
+brain task --clear GCD-1134               # limpiar una tarea específica
+brain task --clear-all                     # limpiar todas las tareas activas
 brain task --sync                          # sincronizar estados desde Jira
 ```
 
+Puedes tener **múltiples tareas activas** simultáneamente. Cada captura se vincula automáticamente a todas las activas, o puedes especificar una con `--task GCD-XXX`.
+
 Cada `--log` agrega un bloque con fecha/hora en la página del ticket en Notion, acumulando el historial de lo trabajado.
 
-### Tablero Jira
+### Tablero
 
 ```bash
+brain pm --board                 # tablero del sprint usando el provider configurado
+brain pm --board --provider jira # fuerza un provider específico
+brain pm --todo                  # picker interactivo de tickets en TO DO
+
+# Alias directo para Jira:
 brain jira --board          # tablero del sprint activo (tus tickets)
 brain jira --board --all    # tablero completo (todo el equipo)
-brain jira --todo           # picker interactivo de tickets en TO DO
+brain jira --todo
 ```
 
 `--board` muestra las columnas activas del sprint (TO DO, DOING, TESTING DEV, TESTING QA, TESTING PROD, DEPLOY TO PROD) con prioridad y labels.
@@ -388,7 +409,7 @@ npm run stop          # cerrar todas las instancias
 ```
 ~/.brain-log/
   .env                  → credenciales (fuente de verdad para el CLI global)
-  state.json            → tarea activa + watched MRs
+  state.json            → tareas activas (múltiples) + watched MRs
   deploy-watch.log      → log del cron de deploy-check y mr-check
   .mr-states.json       → estados de pipeline por MR (evita notificaciones duplicadas)
 
@@ -415,13 +436,19 @@ brain-log/
 
 ```bash
 # Mañana: ver qué hay disponible y tomar una tarea
-brain jira --board              # revisar el sprint
+brain pm --board                # revisar el sprint
 brain jira --todo               # tomar un ticket de TO DO (asignar + mover + activar)
 
-# Durante el día
+# Activar tareas (puedes tener varias simultáneas)
+brain task GCD-1134             # activa tarea principal
+brain task GCD-1199             # activa segunda tarea
+brain task --active             # ver todas las activas
+
+# Durante el día — capturas se vinculan a todas las tareas activas
 brain note "cambié el middleware de autenticación"
 brain todo "escribir tests para el nuevo endpoint"
 brain learn "los hooks de React se ejecutan en orden de definición"
+brain note "fix específico del auth" --task GCD-1199   # vincular a una sola tarea
 brain task GCD-1134 --status    # ver si el PR ya fue mergeado
 
 # Al abrir un MR, registrarlo para monitoreo en tiempo real:
@@ -432,10 +459,10 @@ brain mr-watch "https://gitlab.com/grupo/proyecto/-/merge_requests/XXX"
 # "deploy to qa: GCD-1134" → Jira lo linkea y el cron mueve el ticket automáticamente
 
 # Al final del día
-brain today         # revisar capturas del vault local
-brain recap         # generar resumen con Claude → guarda en vault + Notion
-brain sync          # push de capturas del día a Notion (si quieres forzarlo)
-brain task --clear  # limpiar tarea activa
+brain today                     # revisar capturas del vault local
+brain recap                     # generar resumen con Claude → vault + Notion en background
+brain sync --git                # forzar push del vault a git (si no es automático)
+brain task --clear-all          # limpiar todas las tareas activas
 ```
 
 ---
