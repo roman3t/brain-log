@@ -18,6 +18,28 @@ export const config = {
       token: process.env.JIRA_API_TOKEN || '',
     }
   },
+  get notes() {
+    return {
+      default: process.env.NOTES_DEFAULT || 'markdown',
+    }
+  },
+  get markdown() {
+    return {
+      vaultPath: process.env.MARKDOWN_VAULT_PATH || '',
+    }
+  },
+  get pmDefault() {
+    return process.env.PM_DEFAULT || 'jira'
+  },
+  get gitDefault() {
+    return process.env.GIT_DEFAULT || 'gitlab'
+  },
+  get gitlab() {
+    return {
+      url: process.env.GITLAB_URL || 'https://gitlab.com',
+      token: process.env.GITLAB_TOKEN || '',
+    }
+  },
   get notion() {
     return {
       token: process.env.NOTION_TOKEN || '',

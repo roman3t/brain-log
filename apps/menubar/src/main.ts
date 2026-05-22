@@ -9,7 +9,7 @@ import * as dotenv from 'dotenv'
 
 dotenv.config({ path: path.join(os.homedir(), '.brain-log', '.env') })
 
-import { searchJiraIssues, getActiveTask, wasMovedBackward, transitionJiraIssue, getJiraIssue, getJiraPullRequests, getJiraDeployments, getWatchedMRs } from '@brain-log/shared'
+import { searchJiraIssues, getActiveTask, getActiveTasks, wasMovedBackward, transitionJiraIssue, getJiraIssue, getJiraPullRequests, getJiraDeployments, getWatchedMRs } from '@brain-log/shared'
 
 let tray: Tray | null = null
 let win: BrowserWindow | null = null
@@ -71,6 +71,10 @@ function createTray() {
 
 ipcMain.handle('get-active-task', () => {
   try { return getActiveTask() } catch { return null }
+})
+
+ipcMain.handle('get-active-tasks', () => {
+  try { return getActiveTasks() } catch { return [] }
 })
 
 ipcMain.handle('get-watched-mrs', () => {

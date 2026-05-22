@@ -54,7 +54,7 @@ app.post('/capture', auth, async (req, res) => {
       type,
       raw: raw.trim(),
       source: source as CaptureSource,
-      task: activeTask?.id,
+      taskId: activeTask?.id,
     })
 
     res.json({ ok: true, id })

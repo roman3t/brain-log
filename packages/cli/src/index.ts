@@ -21,6 +21,8 @@ import {
   saveCapture,
   saveRecap,
   getCapturesForToday,
+  getCapturesForDate,
+  getNotesProvider,
   generateRecap,
   getJiraIssue,
   getJiraIssueDetail,
@@ -33,6 +35,10 @@ import {
   getJiraTransitions,
   wasMovedBackward,
   getActiveTask,
+  getActiveTasks,
+  addActiveTask,
+  removeActiveTask,
+  clearAllActiveTasks,
   setActiveTask,
   clearActiveTask,
   pinTask,
@@ -45,6 +51,8 @@ import {
   getTrackedTasks,
   setupTasksDatabase,
   appendToTrackedTask,
+  getPMProvider,
+  getGitProvider,
 } from '@brain-log/shared'
 
 const program = new Command()
@@ -54,79 +62,73 @@ program
   .description('Tu second brain personal — captura, procesa, recuerda')
   .version('1.0.0')
 
-// ── brain note "texto" ──────────────────────────────────────────
+// ── Capture helper ──────────────────────────────────────────────
+async function capture(type: 'note' | 'todo' | 'vibe' | 'learn', text: string, taskOverride?: string) {
+  validateConfig()
+  const taskId = taskOverride || getActiveTask()?.id
+  await saveCapture({ type, raw: text, source: 'cli', taskId })
+  return taskId
+}
+
+// ── brain note "texto" [--task GCD-XXX] ────────────────────────
 program
   .command('note <text>')
   .description('Guarda una nota rápida')
-  .action(async (text: string) => {
+  .option('-t, --task <id>', 'Vincula a una tarea específica')
+  .action(async (text: string, opts: { task?: string }) => {
     const spinner = ora('Guardando nota...').start()
     try {
-      validateConfig()
-      const task = getActiveTask()
-      await saveCapture({ type: 'note', raw: text, source: 'cli', task: task?.id })
-      spinner.succeed(chalk.green('Nota guardada') + (task ? chalk.dim(` [${task.id}]`) : ''))
-    } catch (e: any) {
-      spinner.fail(chalk.red(e.message))
-      process.exit(1)
-    }
+      const taskId = await capture('note', text, opts.task)
+      spinner.succeed(chalk.green('Nota guardada') + (taskId ? chalk.dim(` [${taskId}]`) : ''))
+    } catch (e: any) { spinner.fail(chalk.red(e.message)); process.exit(1) }
   })
 
-// ── brain todo "texto" ──────────────────────────────────────────
+// ── brain todo "texto" [--task GCD-XXX] ────────────────────────
 program
   .command('todo <text>')
   .description('Agrega un to-do')
-  .action(async (text: string) => {
+  .option('-t, --task <id>', 'Vincula a una tarea específica')
+  .action(async (text: string, opts: { task?: string }) => {
     const spinner = ora('Guardando to-do...').start()
     try {
-      validateConfig()
-      const task = getActiveTask()
-      await saveCapture({ type: 'todo', raw: text, source: 'cli', task: task?.id })
-      spinner.succeed(chalk.green('To-do guardado') + (task ? chalk.dim(` [${task.id}]`) : ''))
-    } catch (e: any) {
-      spinner.fail(chalk.red(e.message))
-      process.exit(1)
-    }
+      const taskId = await capture('todo', text, opts.task)
+      spinner.succeed(chalk.green('To-do guardado') + (taskId ? chalk.dim(` [${taskId}]`) : ''))
+    } catch (e: any) { spinner.fail(chalk.red(e.message)); process.exit(1) }
   })
 
-// ── brain vibe "prompt o descripción" ──────────────────────────
+// ── brain vibe "prompt o descripción" [--task GCD-XXX] ─────────
 program
   .command('vibe <text>')
   .description('Guarda un prompt o resultado de vibecoding')
-  .action(async (text: string) => {
+  .option('-t, --task <id>', 'Vincula a una tarea específica')
+  .action(async (text: string, opts: { task?: string }) => {
     const spinner = ora('Guardando vibe...').start()
     try {
-      validateConfig()
-      const task = getActiveTask()
-      await saveCapture({ type: 'vibe', raw: text, source: 'cli', task: task?.id })
-      spinner.succeed(chalk.green('Vibe guardado') + (task ? chalk.dim(` [${task.id}]`) : ''))
-    } catch (e: any) {
-      spinner.fail(chalk.red(e.message))
-      process.exit(1)
-    }
+      const taskId = await capture('vibe', text, opts.task)
+      spinner.succeed(chalk.green('Vibe guardado') + (taskId ? chalk.dim(` [${taskId}]`) : ''))
+    } catch (e: any) { spinner.fail(chalk.red(e.message)); process.exit(1) }
   })
 
-// ── brain learn "texto" ─────────────────────────────────────────
+// ── brain learn "texto" [--task GCD-XXX] ───────────────────────
 program
   .command('learn <text>')
   .description('Documenta algo que aprendiste')
-  .action(async (text: string) => {
+  .option('-t, --task <id>', 'Vincula a una tarea específica')
+  .action(async (text: string, opts: { task?: string }) => {
     const spinner = ora('Guardando aprendizaje...').start()
     try {
-      validateConfig()
-      const task = getActiveTask()
-      await saveCapture({ type: 'learn', raw: text, source: 'cli', task: task?.id })
-      spinner.succeed(chalk.green('Aprendizaje guardado') + (task ? chalk.dim(` [${task.id}]`) : ''))
-    } catch (e: any) {
-      spinner.fail(chalk.red(e.message))
-      process.exit(1)
-    }
+      const taskId = await capture('learn', text, opts.task)
+      spinner.succeed(chalk.green('Aprendizaje guardado') + (taskId ? chalk.dim(` [${taskId}]`) : ''))
+    } catch (e: any) { spinner.fail(chalk.red(e.message)); process.exit(1) }
   })
 
 // ── brain task [issueKey] [text...] ────────────────────────────
 program
   .command('task [issueKey] [text...]')
-  .description('Activa una tarea Jira o guarda una captura vinculada a ella')
-  .option('-c, --clear', 'Limpia la tarea activa')
+  .description('Activa una tarea o gestiona las tareas activas')
+  .option('-c, --clear', 'Limpia la primera tarea activa (o la especificada)')
+  .option('--clear-all', 'Limpia todas las tareas activas')
+  .option('--active', 'Lista todas las tareas activas')
   .option('-s, --show', 'Muestra los detalles completos del ticket')
   .option('--status', 'Muestra PRs, deploys y estado del ticket')
   .option('--pin', 'Congela el ticket — deploy-check no lo moverá automáticamente')
@@ -135,7 +137,31 @@ program
   .option('-l, --log <text>', 'Agrega una nota de contexto a la página de la tarea en Notion')
   .option('--sync', 'Sincroniza el estado de todas las tareas desde Jira')
   .option('--setup <pageId>', 'Crea la base de datos Tasks en Notion (requiere ID de página)')
-  .action(async (issueKey: string | undefined, textParts: string[], opts: { clear?: boolean; show?: boolean; status?: boolean; pin?: boolean; unpin?: boolean; add?: boolean; log?: string; sync?: boolean; setup?: string }) => {
+  .action(async (issueKey: string | undefined, textParts: string[], opts: { clear?: boolean; clearAll?: boolean; active?: boolean; show?: boolean; status?: boolean; pin?: boolean; unpin?: boolean; add?: boolean; log?: string; sync?: boolean; setup?: string }) => {
+
+    // ── --active: lista todas las tareas activas ────────────────
+    if (opts.active) {
+      const tasks = getActiveTasks()
+      if (tasks.length === 0) {
+        console.log(chalk.yellow('No hay tareas activas.'))
+      } else {
+        console.log(chalk.bold(`\n${tasks.length} tarea(s) activa(s):\n`))
+        tasks.forEach((t, i) => {
+          const badge = i === 0 ? chalk.green('● principal') : chalk.dim('○')
+          console.log(`  ${badge}  ${chalk.cyan(t.id)} — ${t.title}`)
+          console.log(chalk.dim(`         ${t.url}`))
+        })
+        console.log()
+      }
+      return
+    }
+
+    // ── --clear-all ─────────────────────────────────────────────
+    if (opts.clearAll) {
+      clearAllActiveTasks()
+      console.log(chalk.yellow('Todas las tareas activas limpiadas.'))
+      return
+    }
 
     if (opts.setup) {
       const spinner = ora('Creando base de datos Tasks en Notion...').start()
@@ -306,13 +332,31 @@ program
     }
 
     if (opts.clear) {
-      clearActiveTask()
-      console.log(chalk.green('✔ Tarea activa eliminada'))
+      if (issueKey) {
+        removeActiveTask(issueKey.toUpperCase())
+        console.log(chalk.green(`✔ ${issueKey.toUpperCase()} removida de tareas activas`))
+      } else {
+        clearActiveTask()
+        console.log(chalk.green('✔ Tarea activa eliminada'))
+      }
       return
     }
 
     if (!issueKey) {
-      const task = getActiveTask()
+      const tasks = getActiveTasks()
+      if (tasks.length > 1) {
+        console.log(chalk.bold(`\n${tasks.length} tareas activas:\n`))
+        tasks.forEach((t, i) => {
+          const badge = i === 0 ? chalk.green('● principal') : chalk.dim('○')
+          console.log(`  ${badge}  ${chalk.cyan(t.id)} — ${t.title}`)
+        })
+        console.log()
+        console.log(chalk.dim('  brain task --active   → ver todas'))
+        console.log(chalk.dim('  brain task GCD-XXX --clear   → remover una'))
+        console.log()
+        return
+      }
+      const task = tasks[0]
       if (task) {
         console.log(chalk.bold(`\n🎯 Tarea activa: ${chalk.cyan(task.id)} — ${task.title}`))
         if (task.url) console.log(chalk.dim(`   ${task.url}`))
@@ -330,7 +374,7 @@ program
       const spinner = ora('Guardando nota...').start()
       try {
         validateConfig()
-        await saveCapture({ type: 'note', raw: text, source: 'cli', task: issueKey })
+        await saveCapture({ type: 'note', raw: text, source: 'cli', taskId: issueKey })
         spinner.succeed(chalk.green('Nota guardada') + chalk.dim(` [${issueKey}]`))
       } catch (e: any) {
         spinner.fail(chalk.red(e.message))
@@ -344,7 +388,7 @@ program
         const issue = useDetail
           ? await getJiraIssueDetail(issueKey)
           : await getJiraIssue(issueKey)
-        setActiveTask({ id: issue.id, title: issue.title, url: issue.url, setAt: new Date().toISOString() })
+        addActiveTask({ id: issue.id, title: issue.title, url: issue.url, setAt: new Date().toISOString(), provider: 'jira' })
 
         let savedToNotion = false
         if (opts.add || process.env.NOTION_TASKS_DB) {
@@ -369,7 +413,7 @@ program
           spinner.fail(chalk.red(e.message))
           process.exit(1)
         }
-        setActiveTask({ id: issueKey, title: issueKey, url: '', setAt: new Date().toISOString() })
+        addActiveTask({ id: issueKey, title: issueKey, url: '', setAt: new Date().toISOString(), provider: 'jira' })
         spinner.warn(chalk.yellow(`Tarea activa: ${issueKey}`) + chalk.dim(' (Jira no configurado, usando solo el ID)'))
       }
     }
@@ -462,7 +506,7 @@ program
         if (action === 'full') {
           const doing = transitions.find(t => t.name.toLowerCase().includes('doing') || t.name.toLowerCase().includes('in progress') || t.name.toLowerCase().includes('en progreso'))
           if (doing) await transitionJiraIssue(selectedKey, doing.name)
-          setActiveTask({ id: issue.key, title: issue.title, url: issue.url, setAt: new Date().toISOString() })
+          addActiveTask({ id: issue.key, title: issue.title, url: issue.url, setAt: new Date().toISOString(), provider: 'jira' })
         }
 
         if (action === 'move') {
@@ -478,7 +522,7 @@ program
         }
 
         if (action === 'activate') {
-          setActiveTask({ id: issue.key, title: issue.title, url: issue.url, setAt: new Date().toISOString() })
+          addActiveTask({ id: issue.key, title: issue.title, url: issue.url, setAt: new Date().toISOString(), provider: 'jira' })
         }
 
         spinner2.succeed(chalk.green(`${selectedKey} actualizado`))
@@ -709,7 +753,7 @@ program
       captures.forEach((c) => {
         const icon = { note: '📝', todo: '☑️', vibe: '⚡', learn: '🧠' }[c.type] || '•'
         const color = { note: chalk.white, todo: chalk.cyan, vibe: chalk.magenta, learn: chalk.green }[c.type] || chalk.white
-        const taskTag = c.task ? chalk.dim(` [${c.task}]`) : ''
+        const taskTag = c.taskId ? chalk.dim(` [${c.taskId}]`) : ''
         console.log(`${icon} ${color(`[${c.type}]`)}${taskTag} ${c.raw}`)
       })
       console.log()
@@ -969,6 +1013,117 @@ program
 
     if (changed) {
       fs.writeFileSync(statesPath, JSON.stringify(states, null, 2))
+    }
+  })
+
+// ── brain pm ────────────────────────────────────────────────────
+// Alias del provider PM activo — equivalente a `brain jira` pero provider-agnóstico
+program
+  .command('pm')
+  .description('Comandos del PM provider activo (jira por defecto)')
+  .option('--board', 'Tablero del sprint activo')
+  .option('--board-all', 'Tablero completo (todo el equipo)')
+  .option('--todo', 'Seleccionar ticket de TO DO para trabajar')
+  .option('--provider <name>', 'Fuerza un provider específico (jira, asana, linear)')
+  .action(async (opts: { board?: boolean; boardAll?: boolean; todo?: boolean; provider?: string }) => {
+    try {
+      const pm = getPMProvider(opts.provider)
+      const COLUMNS = ['TO DO', 'DOING', 'TESTING DEV', 'TESTING QA', 'TESTING PROD', 'DEPLOY TO PROD', 'HOLD']
+
+      if (opts.board || opts.boardAll) {
+        const spinner = ora(`Cargando board desde ${pm.name}...`).start()
+        try {
+          const board = await pm.getBoard(COLUMNS)
+          spinner.stop()
+          console.log(chalk.bold(`\nSprint — ${pm.name.toUpperCase()} (${board.total} tickets)\n`))
+          for (const col of board.columns) {
+            const count = board.counts[col] || 0
+            if (!count) continue
+            console.log(chalk.bold(`  ${col}`) + chalk.dim(` (${count})`))
+            for (const t of board.grouped[col] || []) {
+              const prio = { Highest: '⬆', High: '↑', Medium: '→', Low: '↓', Lowest: '⬇' }[t.priority] || ' '
+              console.log(`    ${prio} ${chalk.cyan(t.key)} ${t.title.slice(0, 60)}`)
+            }
+          }
+          console.log()
+        } catch (e: any) { spinner.fail(chalk.red(e.message)); process.exit(1) }
+        return
+      }
+
+      if (opts.todo) {
+        // Redirigir al comando jira --todo existente (reutiliza la lógica)
+        process.argv = ['node', 'brain', 'jira', '--todo', ...(opts.provider ? ['--provider', opts.provider] : [])]
+        program.parse()
+        return
+      }
+
+      console.log(chalk.dim(`Provider activo: ${pm.name} (PM_DEFAULT=${process.env.PM_DEFAULT || 'jira'})`))
+      console.log(chalk.dim('  --board    → tablero del sprint'))
+      console.log(chalk.dim('  --todo     → picker interactivo'))
+    } catch (e: any) {
+      console.error(chalk.red(e.message))
+      process.exit(1)
+    }
+  })
+
+// ── brain sync ──────────────────────────────────────────────────
+program
+  .command('sync')
+  .description('Sincroniza captures del vault markdown a Notion / git')
+  .option('--git', 'Fuerza git add + commit + push del vault')
+  .option('--notion', 'Fuerza sync a Notion')
+  .option('--date <date>', 'Fecha específica YYYY-MM-DD (default: hoy)')
+  .option('--status', 'Muestra qué días tienen .md en el vault')
+  .action(async (opts: { git?: boolean; notion?: boolean; date?: string; status?: boolean }) => {
+    if (opts.status) {
+      const vaultPath = process.env.MARKDOWN_VAULT_PATH
+      if (!vaultPath) { console.error(chalk.red('MARKDOWN_VAULT_PATH no configurado')); process.exit(1) }
+      const journalsDir = path.join(vaultPath, 'journals')
+      try {
+        const files = (await fs.promises.readdir(journalsDir)).filter(f => f.endsWith('.md')).sort().reverse()
+        console.log(chalk.bold(`\n${files.length} journal(s) en el vault:\n`))
+        files.slice(0, 20).forEach(f => console.log(chalk.dim(`  ${f}`)))
+        if (files.length > 20) console.log(chalk.dim(`  ... y ${files.length - 20} más`))
+        console.log()
+      } catch { console.log(chalk.yellow('No hay journals en el vault aún.')) }
+      return
+    }
+
+    if (opts.git) {
+      const vaultPath = process.env.MARKDOWN_VAULT_PATH
+      if (!vaultPath) { console.error(chalk.red('MARKDOWN_VAULT_PATH no configurado')); process.exit(1) }
+      const spinner = ora('Sincronizando vault con git...').start()
+      try {
+        const { gitSync } = await import('@brain-log/shared') as any
+        await gitSync(vaultPath)
+        spinner.succeed(chalk.green('Vault sincronizado con git'))
+      } catch (e: any) {
+        if (e.message?.includes('nothing to commit')) {
+          spinner.succeed(chalk.dim('Sin cambios para commitear'))
+        } else {
+          spinner.fail(chalk.red(e.message))
+          process.exit(1)
+        }
+      }
+      return
+    }
+
+    const date = opts.date || new Date().toISOString().split('T')[0]
+    const spinner = ora(`Sincronizando captures de ${date} a Notion...`).start()
+    try {
+      const captures = await getCapturesForDate(date)
+      if (captures.length === 0) { spinner.warn(chalk.yellow(`No hay captures para ${date}`)); return }
+
+      const { saveNotionCapture } = await import('@brain-log/shared') as any
+      let synced = 0
+      for (const c of captures) {
+        await saveNotionCapture({ type: c.type, raw: c.raw, source: c.source, processed: c.processed, date: c.date, task: c.taskId })
+        synced++
+      }
+      spinner.succeed(chalk.green(`${synced} capture(s) sincronizado(s) a Notion`))
+    } catch (e: any) {
+      spinner.fail(chalk.red(e.message))
+      process.exit(1)
     }
   })
 

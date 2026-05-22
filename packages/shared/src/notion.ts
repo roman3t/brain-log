@@ -253,17 +253,15 @@ export async function getTrackedTasks(): Promise<TrackedTask[]> {
   }))
 }
 
-export async function getCapturesForToday(): Promise<Capture[]> {
+export async function getCapturesForDate(date: string): Promise<Capture[]> {
   const client = getClient()
-  const today = new Date().toISOString().split('T')[0]
-
   const results: any[] = []
   let cursor: string | undefined
 
   do {
     const response = await client.databases.query({
       database_id: config.notion.databases.captures,
-      filter: { property: 'Date', date: { equals: today } },
+      filter: { property: 'Date', date: { equals: date } },
       sorts: [{ property: 'Date', direction: 'ascending' }],
       ...(cursor ? { start_cursor: cursor } : {}),
     })
@@ -279,4 +277,9 @@ export async function getCapturesForToday(): Promise<Capture[]> {
     date: page.properties.Date?.date?.start,
     task: page.properties.Task?.rich_text?.[0]?.plain_text,
   }))
+}
+
+export async function getCapturesForToday(): Promise<Capture[]> {
+  const today = new Date().toISOString().split('T')[0]
+  return getCapturesForDate(today)
 }

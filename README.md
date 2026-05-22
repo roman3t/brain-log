@@ -1,14 +1,16 @@
 # brain-log
 
-Tu second brain personal. Captura notas, to-dos, vibes y aprendizajes desde la terminal o el browser. Los guarda en Notion, los vincula a tickets de Jira y genera recaps diarios con Claude.
+Tu second brain personal. Captura notas, to-dos, vibes y aprendizajes desde la terminal o el browser. Los guarda en archivos Markdown compatibles con Obsidian/Logseq (con sync opcional a Notion), los vincula a tickets de Jira y genera recaps diarios con Claude. Monitorea el estado de tus MRs y pipelines de GitLab con notificaciones nativas.
 
 ---
 
 ## Requisitos
 
 - Node.js 20+, pnpm
-- Cuenta Notion con integración configurada
 - Cuenta Jira (Atlassian)
+- Vault local de Markdown (cualquier carpeta — Obsidian, Logseq, o carpeta vacía)
+- Cuenta Notion con integración configurada _(opcional, para sync en segundo plano)_
+- Cuenta GitLab con Personal Access Token _(opcional, para monitoreo de pipelines)_
 - API key de Anthropic _(opcional, solo para `brain recap`)_
 
 ---
@@ -22,21 +24,29 @@ cp .env.example .env
 ```
 
 ```env
-# Notion
+# Jira
+JIRA_HOST=tuempresa.atlassian.net
+JIRA_EMAIL=tu@email.com
+JIRA_API_TOKEN=<token>
+
+# Notes provider (markdown por defecto)
+NOTES_DEFAULT=markdown                         # markdown | notion
+MARKDOWN_VAULT_PATH=/Users/tu-usuario/brain-vault  # carpeta local del vault
+
+# Notion (opcional — sync en segundo plano cuando NOTES_DEFAULT=markdown)
 NOTION_TOKEN=secret_...
 NOTION_CAPTURES_DB=<id>
 NOTION_RECAPS_DB=<id>
 NOTION_DAILY_LOG_DB=<id>
 NOTION_TASKS_DB=<id>
 
-# Jira
-JIRA_HOST=tuempresa.atlassian.net
-JIRA_EMAIL=tu@email.com
-JIRA_API_TOKEN=<token>
-
 # API
 API_SECRET=brain-log-secret
 PORT=3141
+
+# GitLab (opcional, para monitoreo de pipelines y MRs)
+GITLAB_URL=https://gitlab.com
+GITLAB_TOKEN=glpat-...
 
 # Claude (opcional, solo para brain recap)
 ANTHROPIC_API_KEY=sk-ant-...
@@ -52,18 +62,22 @@ pnpm --filter @brain-log/shared build
 cd packages/cli && npm install -g .
 ```
 
-### 3. Crear tabla Tasks en Notion (primera vez)
+### 3. Copiar credenciales al directorio de usuario
+
+```bash
+cp .env ~/.brain-log/.env
+```
+
+### 4. Crear tabla Tasks en Notion (opcional)
+
+Si quieres usar Notion para gestionar tasks:
 
 ```bash
 # Crea una página en blanco en Notion, copia su ID de la URL y ejecuta:
 brain task --setup <notion-page-id>
 ```
 
-Copia el `NOTION_TASKS_DB` que te da y agrégalo al `.env`. Luego:
-
-```bash
-cp .env ~/.brain-log/.env
-```
+Copia el `NOTION_TASKS_DB` que te da y agrégalo a `~/.brain-log/.env`.
 
 ---
 
@@ -78,7 +92,47 @@ brain vibe "prompt que usé para generar el wizard"
 brain learn "aprendí sobre GraphQL mutations"
 ```
 
-Todas las capturas se etiquetan automáticamente con la tarea activa si hay una.
+Todas las capturas se etiquetan automáticamente con la tarea activa si hay una. Puedes sobreescribir el task con `--task`:
+
+```bash
+brain note "arreglé el bug del auth" --task GCD-1199
+```
+
+### Notes provider
+
+Por defecto las capturas se escriben en archivos `.md` dentro de tu vault local, en formato compatible con Obsidian/Logseq:
+
+```
+~/brain-vault/
+  journals/
+    2026_05_21.md    ← capturas del día
+  recaps/
+    2026_05_21.md    ← recap generado con Claude
+```
+
+Formato de cada captura:
+```markdown
+## 2026-05-21
+- 📝 cambié el middleware de autenticación #note [[GCD-1134]]
+- ☑️ escribir tests del nuevo endpoint #todo
+- 🧠 los hooks de React se ejecutan en orden de definición #learn
+```
+
+Si tienes `NOTION_TOKEN` configurado, cada captura también se sincroniza a Notion en segundo plano (no bloquea).
+
+Para usar Notion como provider principal (comportamiento anterior):
+```env
+NOTES_DEFAULT=notion
+```
+
+#### Sincronización manual a Notion
+
+```bash
+brain sync                        # sincroniza capturas de hoy al Notion
+brain sync --date 2026-05-20      # sincronizar un día específico
+brain sync --status               # ver journals en el vault local
+brain sync --notion               # forzar push a Notion (aunque Markdown sea el default)
+```
 
 ### Ver el día
 
@@ -90,7 +144,7 @@ brain today
 
 ```bash
 brain recap
-# Genera resumen con Claude → Notion:
+# Genera resumen con Claude → guarda en vault (+ Notion si está configurado):
 # Lo que hiciste / Lo que aprendiste / Sugerencias para mañana
 ```
 
@@ -175,6 +229,26 @@ tail -f ~/.brain-log/deploy-watch.log
 
 > **Requisito:** los MRs de deploy deben incluir el issue key en el título para que Jira los linkee automáticamente.
 > Ejemplo: `deploy to qa: GCD-1149, GCD-1152`
+
+### Monitoreo de MRs y pipelines de GitLab
+
+Jira puede tardar hasta 1h en indexar un merge. Para recibir notificaciones en tiempo real:
+
+```bash
+brain mr-watch "https://gitlab.com/grupo/proyecto/-/merge_requests/123"
+```
+
+Registra el MR para monitoreo. A partir de ahí, el cron de cada 5 minutos notifica via macOS cuando:
+
+| Evento | Notificación |
+|---|---|
+| Pipeline pasa | brain-log ✅ Pipeline pasó — listo para mergear |
+| Pipeline falla | brain-log ❌ Pipeline falló |
+| MR mergeado | brain-log 🎉 MR mergeado a dev |
+
+El MR se elimina de la lista watched automáticamente al mergearse.
+
+El menubar también muestra el estado del pipeline debajo de cada MR de la tarea activa, incluyendo el pipeline post-merge en la branch destino (ej. `pipeline running… en dev`). Los puntos son clickeables para abrir el pipeline en GitLab.
 
 ---
 
@@ -301,11 +375,11 @@ npm run stop          # cerrar todas las instancias
 
 ### Qué muestra
 
-- **Tarea activa** — key, status en Jira, PRs vinculados (MERGED/OPEN) y estado de deploy por ambiente (deploying… / deployed / failed)
+- **Tarea activa** — key, status en Jira, PRs vinculados (MERGED/OPEN) con **estado del pipeline de GitLab** en tiempo real (punto pulsante amarillo = running, verde = passed, rojo = failed). Para MRs mergeados muestra el pipeline post-merge en la branch destino.
 - **Sprint — mis tickets** — columnas con conteo y barra proporcional; click para expandir issues
 - **Últimos eventos** — log del cron de deploy-check
 - **Botón Avanzar** — mueve la tarea activa al siguiente estado del pipeline directamente desde el menubar
-- **Ejecutar deploy-check** — corre el check manualmente
+- **Ejecutar deploy-check** — corre el check manualmente (no bloquea la UI)
 
 ---
 
@@ -314,8 +388,15 @@ npm run stop          # cerrar todas las instancias
 ```
 ~/.brain-log/
   .env                  → credenciales (fuente de verdad para el CLI global)
-  state.json            → tarea activa actual
-  deploy-watch.log      → log del cron de deploy-check
+  state.json            → tarea activa + watched MRs
+  deploy-watch.log      → log del cron de deploy-check y mr-check
+  .mr-states.json       → estados de pipeline por MR (evita notificaciones duplicadas)
+
+~/brain-vault/          → vault Markdown (MARKDOWN_VAULT_PATH)
+  journals/
+    YYYY_MM_DD.md       → capturas del día
+  recaps/
+    YYYY_MM_DD.md       → recap diario generado con Claude
 
 brain-log/
   apps/
@@ -323,7 +404,7 @@ brain-log/
     menubar/            → app macOS menubar (Electron)
   packages/
     cli/                → comandos de terminal
-    shared/             → clientes Notion, Jira, Claude + estado
+    shared/             → providers (notes/pm/git), Jira, Claude + estado
     extension/          → extensión Chrome
   .env                  → credenciales del proyecto
 ```
@@ -343,12 +424,17 @@ brain todo "escribir tests para el nuevo endpoint"
 brain learn "los hooks de React se ejecutan en orden de definición"
 brain task GCD-1134 --status    # ver si el PR ya fue mergeado
 
+# Al abrir un MR, registrarlo para monitoreo en tiempo real:
+brain mr-watch "https://gitlab.com/grupo/proyecto/-/merge_requests/XXX"
+# → notificaciones macOS cuando pipeline pasa/falla y cuando se mergea
+
 # Al hacer un MR de deploy, incluir el issue key en el título:
 # "deploy to qa: GCD-1134" → Jira lo linkea y el cron mueve el ticket automáticamente
 
 # Al final del día
-brain today         # revisar capturas
-brain recap         # generar resumen con Claude → Notion
+brain today         # revisar capturas del vault local
+brain recap         # generar resumen con Claude → guarda en vault + Notion
+brain sync          # push de capturas del día a Notion (si quieres forzarlo)
 brain task --clear  # limpiar tarea activa
 ```
 
@@ -356,7 +442,7 @@ brain task --clear  # limpiar tarea activa
 
 ## Setup para compañeros de equipo
 
-Ver sección [Setup para compañeros](#setup-compañeros) — solo necesitan Notion + Jira, sin `ANTHROPIC_API_KEY`.
+Solo necesitan Jira + una carpeta local para el vault. Notion es completamente opcional.
 
 ### Setup compañeros
 
@@ -366,21 +452,22 @@ pnpm install && pnpm --filter @brain-log/shared build
 cd packages/cli && npm install -g .
 ```
 
-2. Llenar el `.env` con solo:
+2. Llenar `~/.brain-log/.env` con lo mínimo:
 ```env
-NOTION_TOKEN=secret_...
 JIRA_HOST=tuempresa.atlassian.net
 JIRA_EMAIL=tu@email.com
 JIRA_API_TOKEN=<token>
-NOTION_CAPTURES_DB=
-NOTION_RECAPS_DB=
-NOTION_DAILY_LOG_DB=
+
+NOTES_DEFAULT=markdown
+MARKDOWN_VAULT_PATH=/Users/tu-usuario/brain-vault
 ```
 
-3. Crear tabla Tasks: `brain task --setup <notion-page-id>`
+3. _(Opcional)_ Para Tasks en Notion: crear una página en blanco en Notion, copiar su ID de la URL y ejecutar:
+```bash
+brain task --setup <notion-page-id>
+```
+Agregar `NOTION_TASKS_DB` al `.env`.
 
-4. Agregar `NOTION_TASKS_DB` al `.env` y copiar: `cp .env ~/.brain-log/.env`
+4. Levantar la API (solo si se usa la extensión Chrome): `pnpm dev:api`
 
-5. Levantar la API: `pnpm dev:api`
-
-6. Instalar la extensión Chrome desde `packages/extension` con **Load unpacked**
+5. _(Opcional)_ Instalar la extensión Chrome desde `packages/extension` con **Load unpacked**

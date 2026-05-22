@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { config } from './config'
-import type { Capture } from './notion'
+import type { Capture } from './providers/notes/types'
 
 let _client: Anthropic | null = null
 

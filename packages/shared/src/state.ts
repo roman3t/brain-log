@@ -9,10 +9,12 @@ export interface ActiveTask {
   title: string
   url: string
   setAt: string
+  provider?: string
 }
 
 interface State {
-  activeTask?: ActiveTask
+  activeTask?: ActiveTask       // legacy — kept for backward compat
+  activeTasks?: ActiveTask[]    // new multi-task format
   pinnedTasks?: string[]
   watchedMRs?: string[]
 }
@@ -30,18 +32,48 @@ function write(state: State): void {
   fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
 }
 
+// ── Multi-task API ───────────────────────────────────────────────
+
+export function getActiveTasks(): ActiveTask[] {
+  const state = read()
+  // Migrate legacy single-task format transparently
+  if (state.activeTasks) return state.activeTasks
+  if (state.activeTask) return [state.activeTask]
+  return []
+}
+
+export function addActiveTask(task: ActiveTask): void {
+  const state = read()
+  const tasks = getActiveTasks().filter(t => t.id !== task.id)
+  tasks.unshift(task)
+  write({ ...state, activeTasks: tasks, activeTask: task })
+}
+
+export function removeActiveTask(id: string): void {
+  const state = read()
+  const tasks = getActiveTasks().filter(t => t.id !== id)
+  const next = tasks[0]
+  write({ ...state, activeTasks: tasks, activeTask: next })
+}
+
+export function clearAllActiveTasks(): void {
+  const state = read()
+  write({ ...state, activeTasks: [], activeTask: undefined })
+}
+
+// ── Legacy single-task API (backward compat) ─────────────────────
+
 export function getActiveTask(): ActiveTask | undefined {
-  return read().activeTask
+  return getActiveTasks()[0]
 }
 
 export function setActiveTask(task: ActiveTask): void {
-  write({ ...read(), activeTask: task })
+  addActiveTask(task)
 }
 
 export function clearActiveTask(): void {
-  const state = read()
-  delete state.activeTask
-  write(state)
+  const tasks = getActiveTasks()
+  if (tasks.length > 0) removeActiveTask(tasks[0].id)
 }
 
 export function pinTask(issueKey: string): void {
