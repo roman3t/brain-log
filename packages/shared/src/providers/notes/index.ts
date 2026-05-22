@@ -66,3 +66,32 @@ export async function getCapturesForDate(date: string): Promise<Capture[]> {
 export * from './types'
 export { MarkdownProvider, NotionProvider }
 export { gitSync } from './git-sync'
+export type { TaskPage, ChecklistItem } from './markdown'
+
+export async function saveTaskPage(task: import('./markdown').TaskPage): Promise<string | null> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) return provider.saveTaskPage(task)
+  return null
+}
+
+export async function addChecklistItem(taskId: string, text: string): Promise<void> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) await provider.addChecklistItem(taskId, text)
+}
+
+export async function completeChecklistItem(taskId: string, partialText: string): Promise<boolean> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) return provider.completeChecklistItem(taskId, partialText)
+  return false
+}
+
+export async function addLogEntry(taskId: string, note: string): Promise<void> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) await provider.addLogEntry(taskId, note)
+}
+
+export async function getChecklist(taskId: string): Promise<import('./markdown').ChecklistItem[]> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) return provider.getChecklist(taskId)
+  return []
+}

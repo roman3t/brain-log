@@ -47,12 +47,19 @@ import {
   addWatchedMR,
   removeWatchedMR,
   getWatchedMRs,
+  getContext,
+  setContext,
   upsertTrackedTask,
   getTrackedTasks,
   setupTasksDatabase,
   appendToTrackedTask,
   getPMProvider,
   getGitProvider,
+  saveTaskPage,
+  addChecklistItem,
+  completeChecklistItem,
+  addLogEntry,
+  getChecklist,
 } from '@brain-log/shared'
 
 const program = new Command()
@@ -134,10 +141,14 @@ program
   .option('--pin', 'Congela el ticket — deploy-check no lo moverá automáticamente')
   .option('--unpin', 'Descongela el ticket')
   .option('-a, --add', 'Agrega o actualiza el ticket en tu tabla de Notion')
-  .option('-l, --log <text>', 'Agrega una nota de contexto a la página de la tarea en Notion')
+  .option('-l, --log <text>', 'Agrega una nota de contexto a la página de la tarea (vault + Notion)')
+  .option('--checklist', 'Ver el checklist del ticket')
+  .option('--check <text>', 'Agregar subtarea al checklist')
+  .option('--done <text>', 'Marcar subtarea como completada (texto parcial)')
+  .option('--new <title>', 'Crear tarea personal sin Jira (usa issueKey como ID)')
   .option('--sync', 'Sincroniza el estado de todas las tareas desde Jira')
   .option('--setup <pageId>', 'Crea la base de datos Tasks en Notion (requiere ID de página)')
-  .action(async (issueKey: string | undefined, textParts: string[], opts: { clear?: boolean; clearAll?: boolean; active?: boolean; show?: boolean; status?: boolean; pin?: boolean; unpin?: boolean; add?: boolean; log?: string; sync?: boolean; setup?: string }) => {
+  .action(async (issueKey: string | undefined, textParts: string[], opts: { clear?: boolean; clearAll?: boolean; active?: boolean; show?: boolean; status?: boolean; pin?: boolean; unpin?: boolean; add?: boolean; log?: string; checklist?: boolean; check?: string; done?: string; new?: string; sync?: boolean; setup?: string }) => {
 
     // ── --active: lista todas las tareas activas ────────────────
     if (opts.active) {
@@ -193,16 +204,100 @@ program
       }
       const spinner = ora(`Agregando nota a ${key}...`).start()
       try {
-        const pageId = await appendToTrackedTask(key, opts.log)
-        if (!pageId) {
-          spinner.fail(chalk.red(`${key} no está en tu tabla de Notion. Agrégala primero con --add`))
-          process.exit(1)
-        }
-        spinner.succeed(chalk.green(`Nota agregada a ${chalk.cyan(key)} en Notion`))
+        // Escribir al vault markdown (no bloquea si el archivo no existe)
+        await addLogEntry(key, opts.log).catch(() => {})
+        // Escribir a Notion si está configurado
+        const pageId = await appendToTrackedTask(key, opts.log).catch(() => null)
+        spinner.succeed(chalk.green(`Nota agregada a ${chalk.cyan(key)}`))
+        if (!pageId) console.log(chalk.dim('   (Notion: no encontrado — agrega con --add)'))
       } catch (e: any) {
         spinner.fail(chalk.red(e.message))
         process.exit(1)
       }
+      return
+    }
+
+    if (opts.checklist) {
+      const key = issueKey || getActiveTask()?.id
+      if (!key) {
+        console.log(chalk.red('Especifica un issue key o activa una tarea primero'))
+        process.exit(1)
+      }
+      try {
+        const items = await getChecklist(key)
+        const task = getActiveTasks().find(t => t.id === key)
+        const label = task ? `${chalk.cyan(key)} — ${task.title}` : chalk.cyan(key)
+        const activeTask = getActiveTask()
+        const status = activeTask?.id === key ? chalk.dim(` [${activeTask.id}]`) : ''
+        console.log(chalk.bold(`\n📋 ${label}${status}\n`))
+        if (items.length === 0) {
+          console.log(chalk.dim('  Sin subtareas. Agrega con: brain task --check "texto"'))
+        } else {
+          items.forEach(item => {
+            const icon = item.done ? chalk.green('✅') : chalk.dim('○ ')
+            const text = item.done ? chalk.dim(item.text) : item.text
+            console.log(`  ${icon}  ${text}`)
+          })
+          const done = items.filter(i => i.done).length
+          console.log(chalk.dim(`\n  ${done}/${items.length} completadas`))
+        }
+        console.log()
+      } catch (e: any) {
+        console.error(chalk.red(`No se pudo leer el checklist de ${key}: ${e.message}`))
+        console.log(chalk.dim(`  Activa primero con: brain task ${key}`))
+        process.exit(1)
+      }
+      return
+    }
+
+    if (opts.check) {
+      const key = issueKey || getActiveTask()?.id
+      if (!key) {
+        console.log(chalk.red('Especifica un issue key o activa una tarea primero'))
+        process.exit(1)
+      }
+      try {
+        await addChecklistItem(key, opts.check)
+        console.log(chalk.green(`✔ Subtarea agregada a ${chalk.cyan(key)}: ${opts.check}`))
+      } catch (e: any) {
+        console.error(chalk.red(e.message))
+        console.log(chalk.dim(`  El archivo del ticket no existe. Activa la tarea con: brain task ${key}`))
+        process.exit(1)
+      }
+      return
+    }
+
+    if (opts.done) {
+      const key = issueKey || getActiveTask()?.id
+      if (!key) {
+        console.log(chalk.red('Especifica un issue key o activa una tarea primero'))
+        process.exit(1)
+      }
+      try {
+        const found = await completeChecklistItem(key, opts.done)
+        if (found) {
+          console.log(chalk.green(`✅ Subtarea completada en ${chalk.cyan(key)}: "${opts.done}"`))
+        } else {
+          console.log(chalk.yellow(`No se encontró subtarea con "${opts.done}" en ${key}`))
+        }
+      } catch (e: any) {
+        console.error(chalk.red(e.message))
+        process.exit(1)
+      }
+      return
+    }
+
+    if (opts.new) {
+      if (!issueKey) {
+        console.log(chalk.red('Especifica el ID de la tarea: brain task VAN-01 --new "título"'))
+        process.exit(1)
+      }
+      const id = issueKey.toUpperCase()
+      const title = opts.new
+      addActiveTask({ id, title, url: '', setAt: new Date().toISOString(), provider: 'personal' })
+      const filePath = await saveTaskPage({ id, title, status: 'DOING', priority: '-', url: '', activatedAt: new Date().toISOString() })
+      console.log(chalk.green(`✔ Tarea personal creada: ${chalk.cyan(id)} — ${title}`))
+      if (filePath) console.log(chalk.dim(`   ${filePath}`))
       return
     }
 
@@ -404,9 +499,20 @@ program
           savedToNotion = true
         }
 
+        // Crear página .md en el vault
+        const filePath = await saveTaskPage({
+          id: issue.id,
+          title: issue.title,
+          status: issue.status || '',
+          priority: (issue as any).priority || '',
+          url: issue.url,
+          activatedAt: new Date().toISOString(),
+        })
+
         spinner.succeed(chalk.green(`Tarea activa: ${chalk.cyan(issue.id)} — ${issue.title}`))
         if (issue.url) console.log(chalk.dim(`   ${issue.url}`))
         if (savedToNotion) console.log(chalk.dim('   ✓ Guardado en tabla de Notion'))
+        if (filePath) console.log(chalk.dim(`   ✓ Página en vault: ${filePath}`))
         console.log(chalk.dim('   Todas las capturas siguientes se etiquetarán con esta tarea'))
       } catch (e: any) {
         if (e.message?.includes('no encontró')) {
@@ -729,6 +835,64 @@ program
     }
   })
 
+// ── brain context ────────────────────────────────────────────────
+program
+  .command('context [alias]')
+  .description('Ver o cambiar el contexto activo del vault')
+  .option('--list', 'Listar todos los contextos disponibles')
+  .action((alias: string | undefined, opts: { list?: boolean }) => {
+    const rawContexts = process.env.VAULT_CONTEXTS || ''
+    const contextMap: Record<string, string> = {}
+    if (rawContexts) {
+      rawContexts.split(',').forEach(pair => {
+        const idx = pair.indexOf(':')
+        if (idx > 0) contextMap[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim()
+      })
+    }
+
+    const allAliases = Object.keys(contextMap)
+    const current = getContext() || process.env.VAULT_CONTEXT_DEFAULT || (allAliases[0] ?? '')
+
+    if (opts.list || (!alias && allAliases.length > 0)) {
+      if (allAliases.length === 0) {
+        console.log(chalk.yellow('\nNo hay contextos configurados. Agrega VAULT_CONTEXTS al .env'))
+        return
+      }
+      console.log(chalk.bold('\nContextos disponibles:\n'))
+      for (const a of allAliases) {
+        const isActive = a === current
+        const bullet = isActive ? chalk.cyan('●') : ' '
+        const name = isActive ? chalk.cyan(a.padEnd(14)) : chalk.white(a.padEnd(14))
+        const rel = chalk.dim(contextMap[a])
+        const tag = isActive ? chalk.dim(' (activo)') : ''
+        console.log(`${bullet} ${name} ${rel}${tag}`)
+      }
+      console.log()
+      if (!alias) return
+    }
+
+    if (!alias) {
+      // Solo mostrar contexto actual
+      if (!current) {
+        console.log(chalk.yellow('\nNo hay contexto activo ni VAULT_CONTEXTS configurado.'))
+        return
+      }
+      console.log(chalk.bold(`\n🎯 Contexto activo: ${chalk.cyan(current)}`))
+      if (contextMap[current]) console.log(chalk.dim(`   ${contextMap[current]}`))
+      console.log()
+      return
+    }
+
+    if (allAliases.length > 0 && !contextMap[alias]) {
+      console.error(chalk.red(`Contexto '${alias}' no encontrado. Disponibles: ${allAliases.join(', ')}`))
+      process.exit(1)
+    }
+
+    setContext(alias)
+    console.log(chalk.green(`✔ Contexto cambiado a: ${chalk.bold(alias)}`))
+    if (contextMap[alias]) console.log(chalk.dim(`  ${contextMap[alias]}`))
+  })
+
 // ── brain today ─────────────────────────────────────────────────
 program
   .command('today')
@@ -749,7 +913,9 @@ program
         return
       }
 
-      console.log(chalk.bold(`\n📋 Capturas de hoy (${captures.length}):\n`))
+      const ctx = getContext() || process.env.VAULT_CONTEXT_DEFAULT || ''
+      const ctxLabel = ctx ? chalk.dim(` — ${ctx}`) : ''
+      console.log(chalk.bold(`\n📋 Capturas de hoy${ctxLabel} (${captures.length}):\n`))
       captures.forEach((c) => {
         const icon = { note: '📝', todo: '☑️', vibe: '⚡', learn: '🧠' }[c.type] || '•'
         const color = { note: chalk.white, todo: chalk.cyan, vibe: chalk.magenta, learn: chalk.green }[c.type] || chalk.white

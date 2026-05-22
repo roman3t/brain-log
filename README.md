@@ -31,7 +31,9 @@ JIRA_API_TOKEN=<token>
 
 # Notes provider (markdown por defecto)
 NOTES_DEFAULT=markdown                         # markdown | notion
-MARKDOWN_VAULT_PATH=/Users/tu-usuario/brain-vault  # carpeta local del vault
+MARKDOWN_VAULT_PATH=/Users/tu-usuario/brain-vault
+VAULT_CONTEXT_DEFAULT=g-global
+VAULT_CONTEXTS=g-global:ret/work/g-global,vaneco:ret/projects/vaneco,learning:ret/learning,personal:ret/personal
 
 # Notion (opcional — sync en segundo plano cuando NOTES_DEFAULT=markdown)
 NOTION_TOKEN=secret_...
@@ -146,10 +148,39 @@ git remote add origin git@github.com:tu-usuario/brain-vault.git
 git add . && git commit -m "init" && git push -u origin main
 ```
 
+### Contextos del vault
+
+El vault se organiza en contextos: trabajo, proyectos personales, estudio, vida personal. Cada contexto tiene sus propias carpetas de journals, tasks y recaps.
+
+```bash
+brain context                  # ver contexto activo
+brain context --list           # listar todos los contextos
+brain context work             # cambiar a trabajo
+brain context project-x        # cambiar a un proyecto personal
+brain context learning         # cambiar a estudio
+```
+
+Los contextos se configuran en `.env`:
+
+```env
+VAULT_CONTEXT_DEFAULT=work
+VAULT_CONTEXTS=work:work/my-company,project-x:projects/project-x,learning:learning,personal:personal
+```
+
+Al cambiar de contexto, todas las capturas, tasks y recaps van a la carpeta correspondiente:
+
+```
+~/brain-vault/
+  work/my-company/{journals,tasks,recaps}    ← contexto work
+  projects/project-x/{journals,tasks,recaps} ← contexto project-x
+  learning/{journals,tasks,recaps}            ← contexto learning
+  personal/{journals,tasks,recaps}            ← contexto personal
+```
+
 ### Ver el día
 
 ```bash
-brain today
+brain today   # muestra capturas del día del contexto activo
 ```
 
 ### Recap diario
@@ -163,23 +194,56 @@ brain recap
 ### Gestión de tareas
 
 ```bash
-brain task GCD-1134                        # activar tarea (Jira)
+brain task GCD-1134                        # activar tarea (Jira) → crea GCD-1134.md en vault
 brain task GCD-1134 --add                  # activar + guardar en tabla Notion Tasks
 brain task GCD-1134 --show                 # ver descripción completa + comentarios
 brain task GCD-1134 --status               # ver PRs y deploys del ticket
 brain task GCD-1134 "nota"                 # captura directa vinculada al ticket
-brain task GCD-1134 --log "contexto"       # agrega nota a la página de la tarea en Notion
-brain task --log "contexto"                # igual, usando la tarea activa
 brain task                                 # ver tareas activas actuales
 brain task --active                        # listar todas las tareas activas
 brain task --clear GCD-1134               # limpiar una tarea específica
 brain task --clear-all                     # limpiar todas las tareas activas
 brain task --sync                          # sincronizar estados desde Jira
+
+# Tareas personales (sin Jira)
+brain task VAN-01 --new "revisar cotización de mármol"
 ```
 
 Puedes tener **múltiples tareas activas** simultáneamente. Cada captura se vincula automáticamente a todas las activas, o puedes especificar una con `--task GCD-XXX`.
 
-Cada `--log` agrega un bloque con fecha/hora en la página del ticket en Notion, acumulando el historial de lo trabajado.
+Al activar una tarea se crea automáticamente su página `.md` en el vault (`tasks/GCD-1154.md`).
+
+#### Checklist y log por ticket
+
+Cada ticket tiene su propia página en el vault con checklist personal e historial de notas, independiente de Jira:
+
+```bash
+brain task GCD-1134 --checklist            # ver subtareas del ticket
+brain task GCD-1134 --check "texto"        # agregar subtarea
+brain task --check "texto"                 # agregar a la tarea activa
+brain task GCD-1134 --done "texto parcial" # marcar subtarea como completada
+brain task GCD-1134 --log "nota"           # agrega entrada al log (vault + Notion)
+brain task --log "nota"                    # igual, usando la tarea activa
+```
+
+Formato del archivo en el vault:
+
+```markdown
+# GCD-1154 — Buscar por PO - Cambios_1
+
+**Status:** DOING
+**URL:** https://g-global.atlassian.net/browse/GCD-1154
+
+## Checklist
+- [x] actualizar el schema de MongoDB
+- [ ] escribir tests del componente SearchByPO
+- [ ] hacer PR a dev
+
+## Log
+- **2026-05-22 10:30** — el filtro por PO necesita índice compuesto en MongoDB
+```
+
+Los checkboxes son compatibles con Obsidian y Logseq — puedes marcarlos directamente desde el editor y brain-log los leerá correctamente.
 
 ### Tablero
 

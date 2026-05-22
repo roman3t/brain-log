@@ -13,6 +13,7 @@ export interface ActiveTask {
 }
 
 interface State {
+  context?: string
   activeTask?: ActiveTask       // legacy — kept for backward compat
   activeTasks?: ActiveTask[]    // new multi-task format
   pinnedTasks?: string[]
@@ -110,4 +111,15 @@ export function removeWatchedMR(url: string): void {
 
 export function getWatchedMRs(): string[] {
   return read().watchedMRs || []
+}
+
+// ── Context API ──────────────────────────────────────────────────
+
+export function getContext(): string {
+  return read().context || ''
+}
+
+export function setContext(alias: string): void {
+  const state = read()
+  write({ ...state, context: alias })
 }

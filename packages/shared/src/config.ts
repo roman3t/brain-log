@@ -26,6 +26,8 @@ export const config = {
   get markdown() {
     return {
       vaultPath: process.env.MARKDOWN_VAULT_PATH || '',
+      defaultContext: process.env.VAULT_CONTEXT_DEFAULT || '',
+      contexts: parseContexts(process.env.VAULT_CONTEXTS || ''),
     }
   },
   get pmDefault() {
@@ -51,6 +53,16 @@ export const config = {
       },
     }
   },
+}
+
+function parseContexts(raw: string): Record<string, string> {
+  if (!raw) return {}
+  return Object.fromEntries(
+    raw.split(',').map(pair => {
+      const idx = pair.indexOf(':')
+      return [pair.slice(0, idx).trim(), pair.slice(idx + 1).trim()]
+    })
+  )
 }
 
 export function validateConfig() {
