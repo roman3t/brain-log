@@ -111,6 +111,24 @@
     .pr-title   { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .deploy-divider { border: none; border-top: 1px solid var(--border); margin: 3px 4px; }
 
+    .pipeline-row {
+      display: flex; align-items: center; gap: 5px;
+      padding: 1px 4px 1px 15px; font-size: 10px; color: var(--muted);
+    }
+    .pipeline-row a { color: inherit; text-decoration: none; cursor: pointer; }
+    .pipeline-row a:hover { color: var(--accent); }
+    .pipe-dot {
+      width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+    }
+    .pipe-running { background: var(--yellow); animation: pulse 1.2s ease-in-out infinite; }
+    .pipe-success { background: var(--green); }
+    .pipe-failed  { background: var(--red); }
+    .pipe-pending { background: var(--muted); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
     .task-actions { display: flex; gap: 6px; margin-top: 6px; }
     .task-btn {
       flex: 1;
@@ -302,6 +320,7 @@
       const hasDeps = info?.deployments?.length > 0
       if (hasPRs || hasDeps) {
         prsEl.style.display = 'flex'
+
         const prRows = (info.prs || []).map(pr => {
           const dotClass = pr.status === 'MERGED' ? 'pr-merged' : pr.status === 'OPEN' ? 'pr-open' : 'pr-closed'
           const icon = pr.status === 'MERGED' ? '✓' : pr.status === 'OPEN' ? '○' : '✕'
@@ -337,6 +356,76 @@
 
         const divider = hasPRs && hasDeps ? '<hr class="deploy-divider">' : ''
         prsEl.innerHTML = prRows + divider + depRows
+
+        // Cargar pipelines de GitLab en segundo plano
+        // Si Jira no tiene PRs, usar watched MRs como fallback
+        const jiraPrUrls = (info.prs || []).filter(p => p.url).map(p => p.url)
+        const watchedUrls = jiraPrUrls.length === 0 ? (await api.getWatchedMRs() || []) : []
+        const prUrls = [...jiraPrUrls, ...watchedUrls]
+
+        // Si solo hay watched MRs (Jira sin datos aún), mostrar la sección igual
+        if (watchedUrls.length > 0 && !hasPRs && !hasDeps) {
+          prsEl.style.display = 'flex'
+          prsEl.innerHTML = `<div class="pipeline-row" style="color:var(--muted);font-style:italic">cargando pipeline de GitLab…</div>`
+        }
+
+        if (prUrls.length > 0) {
+          api.getGitlabPipelines(prUrls).then(pipes => {
+            if (!pipes || pipes.length === 0) return
+            // Limpiar placeholder si había watched MRs
+            const placeholder = prsEl.querySelector('.pipeline-row')
+            if (placeholder && watchedUrls.length > 0) prsEl.innerHTML = ''
+
+            pipes.forEach(pipe => {
+              const s = pipe.pipelineStatus
+              const dotClass = !s ? 'pipe-pending'
+                : s === 'success' ? 'pipe-success'
+                : s === 'running' || s === 'pending' ? 'pipe-running'
+                : s === 'failed' ? 'pipe-failed' : 'pipe-pending'
+              const label = !s ? 'sin pipeline'
+                : s === 'success' ? 'pipeline passed'
+                : s === 'running' ? 'pipeline running…'
+                : s === 'pending' ? 'pipeline pending…'
+                : s === 'failed' ? 'pipeline failed'
+                : s
+              const context = pipe.pipelineContext !== 'MR' ? pipe.pipelineContext : pipe.targetBranch
+              const clickFn = pipe.pipelineUrl ? `api.openUrl('${pipe.pipelineUrl}')` : ''
+
+              const isWatched = watchedUrls.includes(pipe.url)
+              if (isWatched) {
+                // MR watched: mostrar como una fila completa con branch + pipeline
+                const mrState = pipe.mrState === 'merged' ? 'merged' : 'open'
+                const stateClass = pipe.mrState === 'merged' ? 'pr-merged' : 'pr-open'
+                const stateIcon = pipe.mrState === 'merged' ? '✓' : '○'
+                const row = document.createElement('div')
+                row.className = 'pr-row'
+                row.onclick = () => api.openUrl(pipe.url)
+                row.innerHTML = `
+                  <span class="pr-status-dot ${stateClass}"></span>
+                  <span style="font-size:9px">${stateIcon}</span>
+                  <span class="pr-branch">${context}</span>
+                  <span class="pr-title">MR!${pipe.mrIid}</span>`
+                prsEl.appendChild(row)
+
+                if (s) {
+                  const pRow = document.createElement('div')
+                  pRow.className = 'pipeline-row'
+                  pRow.innerHTML = `<span class="pipe-dot ${dotClass}"></span><span ${clickFn ? `onclick="${clickFn}" style="cursor:pointer"` : ''}>${label}</span>`
+                  prsEl.appendChild(pRow)
+                }
+              } else {
+                // PR de Jira: insertar pipeline row debajo de su pr-row
+                const row = document.createElement('div')
+                row.className = 'pipeline-row'
+                row.innerHTML = `<span class="pipe-dot ${dotClass}"></span><span ${clickFn ? `onclick="${clickFn}" style="cursor:pointer"` : ''}>${label}${context && pipe.pipelineContext !== 'MR' ? ' en ' + context : ''}</span>`
+                const prRows2 = prsEl.querySelectorAll('.pr-row')
+                const idx = jiraPrUrls.indexOf(pipe.url)
+                if (idx >= 0 && prRows2[idx]) prRows2[idx].insertAdjacentElement('afterend', row)
+                else prsEl.appendChild(row)
+              }
+            })
+          }).catch(() => {})
+        }
       } else {
         prsEl.style.display = 'none'
       }

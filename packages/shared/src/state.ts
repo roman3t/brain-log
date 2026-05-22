@@ -14,6 +14,7 @@ export interface ActiveTask {
 interface State {
   activeTask?: ActiveTask
   pinnedTasks?: string[]
+  watchedMRs?: string[]
 }
 
 function read(): State {
@@ -59,4 +60,22 @@ export function unpinTask(issueKey: string): void {
 
 export function getPinnedTasks(): string[] {
   return read().pinnedTasks || []
+}
+
+export function addWatchedMR(url: string): void {
+  const state = read()
+  const watched = new Set(state.watchedMRs || [])
+  watched.add(url)
+  write({ ...state, watchedMRs: [...watched] })
+}
+
+export function removeWatchedMR(url: string): void {
+  const state = read()
+  const watched = new Set(state.watchedMRs || [])
+  watched.delete(url)
+  write({ ...state, watchedMRs: [...watched] })
+}
+
+export function getWatchedMRs(): string[] {
+  return read().watchedMRs || []
 }

@@ -10,8 +10,9 @@ import inquirer from 'inquirer'
 
 function notify(title: string, message: string, subtitle?: string) {
   try {
-    const sub = subtitle ? `, subtitle:"${subtitle.replace(/"/g, '')}"` : ''
-    execSync(`osascript -e 'display notification "${message.replace(/"/g, "'")}" with title "${title}"${sub}'`)
+    const clean = (s: string) => s.replace(/"/g, '').replace(/'/g, '')
+    const sub = subtitle ? `, subtitle:"${clean(subtitle)}"` : ''
+    execSync(`osascript -e 'display notification "${clean(message)}" with title "${clean(title)}"${sub}'`)
   } catch {}
 }
 import {
@@ -37,6 +38,9 @@ import {
   pinTask,
   unpinTask,
   getPinnedTasks,
+  addWatchedMR,
+  removeWatchedMR,
+  getWatchedMRs,
   upsertTrackedTask,
   getTrackedTasks,
   setupTasksDatabase,
@@ -748,6 +752,223 @@ program
     } catch (e: any) {
       console.error(chalk.red(e.message))
       process.exit(1)
+    }
+  })
+
+// ── brain mr-watch <url> ────────────────────────────────────────
+program
+  .command('mr-watch <url>')
+  .description('Monitorea un MR de GitLab por URL — notifica cuando el pipeline pasa y cuando se mergea')
+  .action(async (url: string) => {
+    const gitlabUrl = process.env.GITLAB_URL || ''
+    const gitlabToken = process.env.GITLAB_TOKEN || ''
+
+    if (!gitlabUrl || !gitlabToken) {
+      console.error('[mr-watch] Faltan GITLAB_URL o GITLAB_TOKEN en ~/.brain-log/.env')
+      process.exit(1)
+    }
+
+    const mrIidMatch = url.match(/\/merge_requests\/(\d+)/)
+    const projectMatch = url.match(/gitlab[^/]+\/(.+?)\/-\/merge_requests/)
+    if (!mrIidMatch || !projectMatch) {
+      console.error('[mr-watch] URL inválida. Esperado: https://gitlab.com/grupo/proyecto/-/merge_requests/123')
+      process.exit(1)
+    }
+
+    const mrIid = mrIidMatch[1]
+    const projectPath = encodeURIComponent(projectMatch[1])
+
+    // Registrar URL para polling automático cada 5 min
+    addWatchedMR(url)
+    console.log(`Monitoreando MR!${mrIid} (${projectMatch[1]}) — recibirás notificaciones automáticas`)
+
+    // Verificar estado actual inmediatamente
+    const statesPath = path.join(os.homedir(), '.brain-log', '.mr-states.json')
+    const stateKey = `watched_MR_${projectMatch[1].replace(/\//g, '_')}_${mrIid}`
+    const states: Record<string, { pipeline: string; mrState: string }> = fs.existsSync(statesPath)
+      ? JSON.parse(fs.readFileSync(statesPath, 'utf-8'))
+      : {}
+    const ts = new Date().toISOString()
+
+    try {
+      const mrRes = await fetch(
+        `${gitlabUrl}/api/v4/projects/${projectPath}/merge_requests/${mrIid}`,
+        { headers: { 'PRIVATE-TOKEN': gitlabToken } },
+      )
+      if (!mrRes.ok) {
+        console.error(`[mr-watch] GitLab error ${mrRes.status}: ${await mrRes.text()}`)
+        process.exit(1)
+      }
+      const mr = await mrRes.json() as any
+      const mrState: string = mr.state || ''
+      const pipelineStatus: string = mr.head_pipeline?.status || ''
+      const label = mr.references?.full || `MR!${mrIid}`
+
+      console.log(`[${ts}] ${label} pipeline=${pipelineStatus || 'ninguno'} state=${mrState}`)
+      states[stateKey] = { pipeline: pipelineStatus, mrState }
+      fs.writeFileSync(statesPath, JSON.stringify(states, null, 2))
+    } catch (e: any) {
+      console.error(`[${ts}] mr-watch error: ${e.message}`)
+      process.exit(1)
+    }
+  })
+
+// ── brain mr-check ─────────────────────────────────────────────
+program
+  .command('mr-check')
+  .description('Monitorea pipelines y merges de GitLab para las tareas activas del sprint')
+  .option('--debug', 'Muestra PRs encontradas sin filtrar')
+  .action(async (opts: { debug?: boolean }) => {
+    const gitlabUrl = process.env.GITLAB_URL || ''
+    const gitlabToken = process.env.GITLAB_TOKEN || ''
+
+    if (!gitlabUrl || !gitlabToken) {
+      console.error('[mr-check] Faltan GITLAB_URL o GITLAB_TOKEN en ~/.brain-log/.env')
+      process.exit(1)
+    }
+
+    const statesPath = path.join(os.homedir(), '.brain-log', '.mr-states.json')
+    const states: Record<string, { pipeline: string; mrState: string }> = fs.existsSync(statesPath)
+      ? JSON.parse(fs.readFileSync(statesPath, 'utf-8'))
+      : {}
+
+    const jql = `project = GCD AND sprint in openSprints() AND assignee = currentUser() AND status != "Done" ORDER BY updated DESC`
+    const ts = new Date().toISOString()
+
+    let changed = false
+
+    try {
+      const issues = await searchJiraIssues(jql)
+
+      for (const issue of issues) {
+        let prs: { url: string; status: string }[] = []
+        try {
+          prs = await getJiraPullRequests(issue.numericId)
+        } catch { continue }
+
+        if (opts.debug) {
+          console.log(`\n[${issue.key}] ${prs.length} PR(s):`)
+          prs.forEach(p => console.log(`  status=${p.status} url=${p.url}`))
+        }
+
+        const openPRs = prs.filter(p => p.status !== 'MERGED' && p.status !== 'DECLINED' && p.url)
+
+        for (const pr of openPRs) {
+          // Extraer project path y MR IID de la URL de GitLab
+          // URL format: https://gitlab.example.com/group/project/-/merge_requests/123
+          const match = pr.url.match(/\/merge_requests\/(\d+)$/)
+          const projectMatch = pr.url.match(/gitlab[^/]+\/(.+?)\/-\/merge_requests/)
+          if (!match || !projectMatch) continue
+
+          const mrIid = match[1]
+          const projectPath = encodeURIComponent(projectMatch[1])
+          const stateKey = `${issue.key}_MR_${mrIid}`
+          const prev = states[stateKey] || { pipeline: '', mrState: '' }
+
+          try {
+            const mrRes = await fetch(
+              `${gitlabUrl}/api/v4/projects/${projectPath}/merge_requests/${mrIid}`,
+              { headers: { 'PRIVATE-TOKEN': gitlabToken } },
+            )
+            if (!mrRes.ok) continue
+            const mr = await mrRes.json() as any
+
+            const mrState: string = mr.state || ''
+            const pipelineStatus: string = mr.head_pipeline?.status || ''
+
+            // Notificar cuando pipeline pasa de running/pending → success
+            if (
+              pipelineStatus === 'success' &&
+              prev.pipeline !== 'success' &&
+              mrState === 'opened'
+            ) {
+              notify('brain-log ✅', `Pipeline de ${issue.key} pasó`, mr.title?.slice(0, 60))
+              console.log(`[${ts}] ${issue.key} MR#${mrIid} pipeline → success`)
+            }
+
+            // Notificar cuando pipeline falla
+            if (
+              pipelineStatus === 'failed' &&
+              prev.pipeline !== 'failed'
+            ) {
+              notify('brain-log ❌', `Pipeline de ${issue.key} falló`, mr.title?.slice(0, 60))
+              console.log(`[${ts}] ${issue.key} MR#${mrIid} pipeline → failed`)
+            }
+
+            // Notificar cuando el MR es mergeado
+            if (mrState === 'merged' && prev.mrState !== 'merged') {
+              notify('brain-log 🎉', `${issue.key} mergeado a ${mr.target_branch}`, mr.title?.slice(0, 60))
+              console.log(`[${ts}] ${issue.key} MR#${mrIid} → merged`)
+            }
+
+            states[stateKey] = { pipeline: pipelineStatus, mrState }
+            changed = true
+          } catch (e: any) {
+            console.error(`[${ts}] ${issue.key} MR#${mrIid} error: ${e.message}`)
+          }
+        }
+
+        // Limpiar MRs mergeados del estado después de notificar
+        const mergedKeys = Object.keys(states).filter(
+          k => k.startsWith(`${issue.key}_MR_`) && states[k].mrState === 'merged',
+        )
+        for (const k of mergedKeys) {
+          delete states[k]
+          changed = true
+        }
+      }
+    } catch (e: any) {
+      console.error(`[${ts}] mr-check error: ${e.message}`)
+    }
+
+    // ── Watched MRs registrados manualmente con mr-watch ──────────
+    const watchedUrls = getWatchedMRs()
+    for (const url of watchedUrls) {
+      const mrIidMatch = url.match(/\/merge_requests\/(\d+)/)
+      const projectMatch = url.match(/gitlab[^/]+\/(.+?)\/-\/merge_requests/)
+      if (!mrIidMatch || !projectMatch) continue
+
+      const mrIid = mrIidMatch[1]
+      const projectPath = encodeURIComponent(projectMatch[1])
+      const stateKey = `watched_MR_${projectMatch[1].replace(/\//g, '_')}_${mrIid}`
+      const prev = states[stateKey] || { pipeline: '', mrState: '' }
+
+      try {
+        const mrRes = await fetch(
+          `${gitlabUrl}/api/v4/projects/${projectPath}/merge_requests/${mrIid}`,
+          { headers: { 'PRIVATE-TOKEN': gitlabToken } },
+        )
+        if (!mrRes.ok) continue
+        const mr = await mrRes.json() as any
+
+        const mrState: string = mr.state || ''
+        const pipelineStatus: string = mr.head_pipeline?.status || ''
+        const label = mr.references?.full || `MR!${mrIid}`
+
+        if (pipelineStatus === 'success' && prev.pipeline !== 'success' && mrState === 'opened') {
+          notify('brain-log ✅', `Pipeline pasó — listo para mergear`, mr.title?.slice(0, 60))
+          console.log(`[${ts}] ${label} pipeline → success`)
+        }
+        if (pipelineStatus === 'failed' && prev.pipeline !== 'failed') {
+          notify('brain-log ❌', `Pipeline falló`, mr.title?.slice(0, 60))
+          console.log(`[${ts}] ${label} pipeline → failed`)
+        }
+        if (mrState === 'merged' && prev.mrState !== 'merged') {
+          notify('brain-log 🎉', `MR mergeado a ${mr.target_branch}`, mr.title?.slice(0, 60))
+          console.log(`[${ts}] ${label} → merged`)
+          removeWatchedMR(url)
+          delete states[stateKey]
+        } else {
+          states[stateKey] = { pipeline: pipelineStatus, mrState }
+        }
+        changed = true
+      } catch (e: any) {
+        console.error(`[${ts}] watched MR#${mrIid} error: ${e.message}`)
+      }
+    }
+
+    if (changed) {
+      fs.writeFileSync(statesPath, JSON.stringify(states, null, 2))
     }
   })
 

@@ -2,12 +2,14 @@ import { app, BrowserWindow, Tray, nativeImage, ipcMain, shell, screen } from 'e
 import * as path from 'path'
 import * as os from 'os'
 import * as fs from 'fs'
-import { execSync } from 'child_process'
+import { execSync, exec } from 'child_process'
+import { promisify } from 'util'
+const execAsync = promisify(exec)
 import * as dotenv from 'dotenv'
 
 dotenv.config({ path: path.join(os.homedir(), '.brain-log', '.env') })
 
-import { searchJiraIssues, getActiveTask, wasMovedBackward, transitionJiraIssue, getJiraIssue, getJiraPullRequests, getJiraDeployments } from '@brain-log/shared'
+import { searchJiraIssues, getActiveTask, wasMovedBackward, transitionJiraIssue, getJiraIssue, getJiraPullRequests, getJiraDeployments, getWatchedMRs } from '@brain-log/shared'
 
 let tray: Tray | null = null
 let win: BrowserWindow | null = null
@@ -71,6 +73,10 @@ ipcMain.handle('get-active-task', () => {
   try { return getActiveTask() } catch { return null }
 })
 
+ipcMain.handle('get-watched-mrs', () => {
+  try { return getWatchedMRs() } catch { return [] }
+})
+
 ipcMain.handle('get-task-status', async (_, issueKey: string) => {
   try {
     const issue = await getJiraIssue(issueKey)
@@ -106,12 +112,11 @@ ipcMain.handle('get-board', async () => {
 
 ipcMain.handle('run-deploy-check', async () => {
   try {
-    const output = execSync(`${BRAIN_BIN} deploy-check 2>&1`, {
+    const { stdout } = await execAsync(`${BRAIN_BIN} deploy-check`, {
       env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH}` },
-      encoding: 'utf-8',
-      timeout: 30000,
+      timeout: 60000,
     })
-    return { ok: true, output: output.trim() }
+    return { ok: true, output: stdout.trim() }
   } catch (e: any) {
     return { ok: false, error: e.stderr || e.message }
   }
@@ -136,6 +141,59 @@ ipcMain.handle('transition-issue', async (_, issueKey: string, toStatus: string)
   } catch (e: any) {
     return { ok: false, error: e.message }
   }
+})
+
+ipcMain.handle('get-gitlab-pipelines', async (_, prUrls: string[]) => {
+  const gitlabUrl = process.env.GITLAB_URL || ''
+  const gitlabToken = process.env.GITLAB_TOKEN || ''
+  if (!gitlabUrl || !gitlabToken) return []
+
+  const results: any[] = []
+  for (const url of prUrls) {
+    const mrIidMatch = url.match(/\/merge_requests\/(\d+)/)
+    const projectMatch = url.match(/gitlab[^/]+\/(.+?)\/-\/merge_requests/)
+    if (!mrIidMatch || !projectMatch) continue
+
+    const mrIid = mrIidMatch[1]
+    const projectPath = encodeURIComponent(projectMatch[1])
+
+    try {
+      const mrRes = await fetch(`${gitlabUrl}/api/v4/projects/${projectPath}/merge_requests/${mrIid}`, {
+        headers: { 'PRIVATE-TOKEN': gitlabToken },
+      })
+      if (!mrRes.ok) continue
+      const mr = await mrRes.json() as any
+
+      let pipeline = mr.head_pipeline
+      let pipelineContext = 'MR'
+
+      if (mr.state === 'merged') {
+        const sha = mr.merge_commit_sha || mr.squash_commit_sha
+        if (sha) {
+          const pRes = await fetch(
+            `${gitlabUrl}/api/v4/projects/${projectPath}/pipelines?sha=${sha}&per_page=1`,
+            { headers: { 'PRIVATE-TOKEN': gitlabToken } },
+          )
+          if (pRes.ok) {
+            const pipes = await pRes.json() as any[]
+            if (pipes.length > 0) { pipeline = pipes[0]; pipelineContext = mr.target_branch }
+          }
+        }
+      }
+
+      results.push({
+        url,
+        mrIid,
+        mrState: mr.state,
+        targetBranch: mr.target_branch,
+        pipelineStatus: pipeline?.status ?? null,
+        pipelineUrl: pipeline?.web_url ?? null,
+        pipelineContext,
+      })
+    } catch {}
+  }
+
+  return results
 })
 
 ipcMain.handle('open-url', (_, url: string) => shell.openExternal(url))

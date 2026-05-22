@@ -146,15 +146,24 @@ Configurable via `.env`:
 JIRA_DEPLOY_RULES=dev:Testing Dev,qa:Testing QA,main:Done
 ```
 
+#### Lógica de regresión
+
+Si alguien mueve un ticket hacia atrás (ej. de TESTING QA a DOING), `deploy-check` lo detecta y lo salta notificando. Pero si después subes un fix y mergeas un PR **después** de esa regresión, el siguiente ciclo lo detecta automáticamente y retoma el flujo normal.
+
+```
+10:00  ticket regresado a DOING  → notifica, salta
+11:00  PR mergeado a dev         → PR.lastUpdated > movedAt → procesa normalmente
+```
+
 #### Cron automático (macOS)
 
 Para que corra cada 5 minutos en segundo plano sin mantener la terminal abierta:
 
 ```bash
-# Ya está instalado si seguiste el setup. Para verificar:
+# Verificar que está activo:
 launchctl list | grep brain-log
 
-# Activar manualmente:
+# Activar:
 launchctl load ~/Library/LaunchAgents/com.brain-log.deploy-watch.plist
 
 # Desactivar:
@@ -279,20 +288,44 @@ Claude leerá el estado activo, traerá el contexto del ticket desde Jira y etiq
 
 ---
 
+## Menubar (macOS)
+
+App nativa en el menubar que muestra el estado del sprint en tiempo real.
+
+```bash
+cd apps/menubar
+npm run build
+npx electron .        # lanzar
+npm run stop          # cerrar todas las instancias
+```
+
+### Qué muestra
+
+- **Tarea activa** — key, status en Jira, PRs vinculados (MERGED/OPEN) y estado de deploy por ambiente (deploying… / deployed / failed)
+- **Sprint — mis tickets** — columnas con conteo y barra proporcional; click para expandir issues
+- **Últimos eventos** — log del cron de deploy-check
+- **Botón Avanzar** — mueve la tarea activa al siguiente estado del pipeline directamente desde el menubar
+- **Ejecutar deploy-check** — corre el check manualmente
+
+---
+
 ## Archivos importantes
 
 ```
 ~/.brain-log/
-  .env          → credenciales (fuente de verdad para el CLI global)
-  state.json    → tarea activa actual
+  .env                  → credenciales (fuente de verdad para el CLI global)
+  state.json            → tarea activa actual
+  deploy-watch.log      → log del cron de deploy-check
 
 brain-log/
-  apps/api/         → API HTTP
+  apps/
+    api/                → API HTTP
+    menubar/            → app macOS menubar (Electron)
   packages/
-    cli/            → comandos de terminal
-    shared/         → clientes Notion, Jira, Claude + estado
-    extension/      → extensión Chrome
-  .env              → credenciales del proyecto
+    cli/                → comandos de terminal
+    shared/             → clientes Notion, Jira, Claude + estado
+    extension/          → extensión Chrome
+  .env                  → credenciales del proyecto
 ```
 
 ---
