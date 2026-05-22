@@ -25,7 +25,6 @@ function createWindow() {
     show: false,
     frame: false,
     resizable: false,
-    alwaysOnTop: true,
     skipTaskbar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -33,6 +32,9 @@ function createWindow() {
       nodeIntegration: false,
     },
   })
+
+  win.setAlwaysOnTop(true, 'floating')
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   win.loadFile(path.join(__dirname, 'ui', 'index.html'))
 
