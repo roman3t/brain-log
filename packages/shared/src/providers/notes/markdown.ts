@@ -89,7 +89,7 @@ export class MarkdownProvider implements NotesProvider {
   private parseCaptures(content: string, date: string): Capture[] {
     const captures: Capture[] = []
     for (const line of content.split('\n')) {
-      const match = line.match(/^- [📝☑️⚡🧠] (.+?) #(note|todo|vibe|learn)/)
+      const match = line.match(/^- \S+ (.+?) #(note|todo|vibe|learn)/)
       if (!match) continue
       const raw = match[1].replace(/\[\[.*?\]\]/g, '').trim()
       const type = match[2] as Capture['type']

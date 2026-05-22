@@ -404,6 +404,35 @@ npm run stop          # cerrar todas las instancias
 
 ---
 
+## Tests
+
+Los tests cubren la lógica crítica del notes provider (escritura de `.md`, parser, factory, git sync).
+
+```bash
+# Correr todos los tests una vez
+cd packages/shared && pnpm test
+
+# Modo watch — re-ejecuta al guardar cualquier archivo
+cd packages/shared && pnpm test:watch
+
+# Desde la raíz del repo
+pnpm --filter @brain-log/shared test
+```
+
+Output esperado:
+
+```
+✓ src/__tests__/markdown.test.ts        (5 tests)
+✓ src/__tests__/captures-parser.test.ts (5 tests)
+✓ src/__tests__/notes-factory.test.ts   (3 tests)
+✓ src/__tests__/git-sync.test.ts        (3 tests)
+
+Test Files  4 passed (4)
+Tests      16 passed (16)
+```
+
+---
+
 ## Archivos importantes
 
 ```
