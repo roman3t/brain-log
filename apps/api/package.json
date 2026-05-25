@@ -8,16 +8,18 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@brain-log/shared": "workspace:*",
-    "express": "^4.19.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.0"
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "openai": "^6.39.0"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "@types/node": "^20.0.0",
-    "@types/express": "^4.17.21",
     "@types/cors": "^2.8.17",
-    "ts-node-dev": "^2.0.0"
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.0"
   }
 }

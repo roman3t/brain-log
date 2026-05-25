@@ -1,11 +1,15 @@
 // ── Tab switching ───────────────────────────────────────────────
+const TAB_IDS = ['capture', 'meet', 'settings']
+
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
     tab.classList.add('active')
     const target = tab.dataset.tab
-    document.getElementById('tab-capture').style.display = target === 'capture' ? 'block' : 'none'
-    document.getElementById('tab-settings').style.display = target === 'settings' ? 'block' : 'none'
+    TAB_IDS.forEach(id => {
+      const el = document.getElementById(`tab-${id}`)
+      if (el) el.style.display = id === target ? 'block' : 'none'
+    })
   })
 })
 
@@ -181,4 +185,118 @@ function showToast(id, msg, type) {
   el.textContent = msg
   el.className = `toast ${type}`
   setTimeout(() => { el.className = 'toast' }, 3000)
+}
+
+// ── Meet: detección de plataforma ───────────────────────────────
+const MEET_PATTERNS = [
+  { pattern: /meet\.google\.com/, name: 'Google Meet' },
+  // { pattern: /zoom\.us\/j\//, name: 'Zoom' },
+  // { pattern: /teams\.microsoft\.com/, name: 'Teams' },
+]
+
+function detectMeet(url) {
+  return MEET_PATTERNS.find(p => p.pattern.test(url)) || null
+}
+
+chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+  const url = tabs[0]?.url || ''
+  const meet = detectMeet(url)
+  if (meet) {
+    document.getElementById('tab-meet-btn').style.display = 'block'
+    document.getElementById('meet-platform').textContent = meet.name
+    document.getElementById('meet-idle').style.display = 'none'
+    document.getElementById('meet-ready').style.display = 'block'
+  }
+})
+
+// ── Meet: estado de grabación ────────────────────────────────────
+let recordingStartTime = null
+let timerInterval = null
+
+function updateTimer() {
+  if (!recordingStartTime) return
+  const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000)
+  const mins = String(Math.floor(elapsed / 60)).padStart(2, '0')
+  const secs = String(elapsed % 60).padStart(2, '0')
+  document.getElementById('recording-timer').textContent = `${mins}:${secs}`
+}
+
+chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATE' }, state => {
+  if (chrome.runtime.lastError) return
+  if (state?.isRecording) {
+    showRecordingUI()
+    recordingStartTime = state.startTime
+    timerInterval = setInterval(updateTimer, 1000)
+  }
+})
+
+// ── Meet: iniciar grabación ──────────────────────────────────────
+document.getElementById('start-recording-btn').addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+    chrome.runtime.sendMessage({
+      type: 'START_RECORDING',
+      tabId: tabs[0].id,
+      url: tabs[0].url,
+    }, response => {
+      if (response?.ok) {
+        showRecordingUI()
+        recordingStartTime = Date.now()
+        timerInterval = setInterval(updateTimer, 1000)
+        document.getElementById('status').style.background = '#f87171'
+      } else {
+        showMeetToast('Error al iniciar grabación', 'error')
+      }
+    })
+  })
+})
+
+// ── Meet: detener y transcribir ──────────────────────────────────
+document.getElementById('stop-recording-btn').addEventListener('click', () => {
+  clearInterval(timerInterval)
+  showProcessingUI('Deteniendo grabación...')
+
+  chrome.runtime.sendMessage({ type: 'STOP_RECORDING' }, response => {
+    if (!response?.ok) {
+      showProcessingUI('Procesando audio...')
+    }
+  })
+})
+
+// ── Meet: escuchar resultado del background ──────────────────────
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'TRANSCRIPTION_DONE') {
+    document.getElementById('meet-processing').style.display = 'none'
+    document.getElementById('meet-ready').style.display = 'block'
+    document.getElementById('status').style.background = '#4ade80'
+    showMeetToast(`✓ ${msg.capturesCount} captures guardados en el vault`, 'success')
+  }
+
+  if (msg.type === 'TRANSCRIPTION_ERROR') {
+    document.getElementById('meet-processing').style.display = 'none'
+    document.getElementById('meet-ready').style.display = 'block'
+    showMeetToast(msg.error, 'error')
+  }
+
+  if (msg.type === 'PROCESSING_STATUS') {
+    document.getElementById('processing-status').textContent = msg.status
+  }
+})
+
+// ── Meet: UI helpers ─────────────────────────────────────────────
+function showRecordingUI() {
+  document.getElementById('meet-ready').style.display = 'none'
+  document.getElementById('meet-recording').style.display = 'block'
+}
+
+function showProcessingUI(status) {
+  document.getElementById('meet-recording').style.display = 'none'
+  document.getElementById('meet-processing').style.display = 'block'
+  document.getElementById('processing-status').textContent = status
+}
+
+function showMeetToast(msg, type) {
+  const el = document.getElementById('meet-toast')
+  el.textContent = msg
+  el.className = `toast ${type}`
+  setTimeout(() => { el.className = 'toast' }, 4000)
 }

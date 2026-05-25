@@ -4,6 +4,7 @@ import * as dotenv from 'dotenv'
 import path from 'path'
 import { validateConfig, validateTaskConfig, saveCapture, getCapturesForToday, generateRecap, saveRecap, getJiraIssueDetail, upsertTrackedTask, getActiveTask } from '@brain-log/shared'
 import type { CaptureType, CaptureSource } from '@brain-log/shared'
+import transcribeRouter from './routes/transcribe'
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') })
 
@@ -11,7 +12,7 @@ const app = express()
 const PORT = process.env.PORT || 3141
 
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '50mb' }))
 
 // ── Auth middleware ─────────────────────────────────────────────
 const API_SECRET = process.env.API_SECRET || 'brain-log-secret'
@@ -29,6 +30,9 @@ function auth(req: express.Request, res: express.Response, next: express.NextFun
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
+
+// ── POST /transcribe ────────────────────────────────────────────
+app.use(auth, transcribeRouter)
 
 // ── POST /capture ───────────────────────────────────────────────
 // Body: { type, raw, source? }

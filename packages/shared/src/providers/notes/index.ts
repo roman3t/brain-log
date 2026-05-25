@@ -68,6 +68,11 @@ export { MarkdownProvider, NotionProvider }
 export { gitSync } from './git-sync'
 export type { TaskPage, ChecklistItem } from './markdown'
 
+export async function saveMeetSessionHeader(date: string, time: string): Promise<void> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) await provider.saveMeetSessionHeader(date, time)
+}
+
 export async function saveTaskPage(task: import('./markdown').TaskPage): Promise<string | null> {
   const provider = getNotesProvider()
   if (provider instanceof MarkdownProvider) return provider.saveTaskPage(task)

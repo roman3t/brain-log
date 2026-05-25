@@ -11,6 +11,9 @@ export const config = {
   get anthropic() {
     return { apiKey: process.env.ANTHROPIC_API_KEY || '' }
   },
+  get openai() {
+    return { apiKey: process.env.GROQ_API_KEY || '' }
+  },
   get jira() {
     return {
       host: process.env.JIRA_HOST || '',

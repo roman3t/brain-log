@@ -55,6 +55,24 @@ export class MarkdownProvider implements NotesProvider {
     return path.join(this.contextPath(), 'tasks', `${taskId}.md`)
   }
 
+  async saveMeetSessionHeader(date: string, time: string): Promise<void> {
+    const filePath = this.journalPath(date)
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+
+    let content = ''
+    try { content = await fs.readFile(filePath, 'utf-8') } catch {}
+
+    const dateHeading = `## ${date}`
+    if (!content.includes(dateHeading)) {
+      content = content ? `${content}\n${dateHeading}\n` : `${dateHeading}\n`
+    }
+
+    const sessionHeading = `### ${time} — Meet`
+    content = content.endsWith('\n') ? `${content}${sessionHeading}\n` : `${content}\n${sessionHeading}\n`
+
+    await fs.writeFile(filePath, content, 'utf-8')
+  }
+
   async saveCapture(capture: Capture): Promise<string> {
     const date = capture.date || new Date().toISOString().split('T')[0]
     const filePath = this.journalPath(date)
