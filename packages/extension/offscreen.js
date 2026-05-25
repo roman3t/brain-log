@@ -1,5 +1,6 @@
 let mediaRecorder = null
 let audioChunks = []
+let audioContext = null
 
 function arrayBufferToBase64(buffer) {
   let binary = ''
@@ -38,6 +39,10 @@ async function startCapture(streamId) {
     video: false,
   })
 
+  audioContext = new AudioContext()
+  const source = audioContext.createMediaStreamSource(stream)
+  source.connect(audioContext.destination)
+
   audioChunks = []
   mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
   mediaRecorder.ondataavailable = e => {
@@ -58,6 +63,7 @@ async function stopCapture() {
         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' })
         const arrayBuffer = await audioBlob.arrayBuffer()
         const base64 = arrayBufferToBase64(arrayBuffer)
+        if (audioContext) { audioContext.close(); audioContext = null }
         resolve({ ok: true, base64 })
       } catch (err) {
         reject(err)

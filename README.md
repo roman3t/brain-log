@@ -1,6 +1,6 @@
 # brain-log
 
-Tu second brain personal. Captura notas, to-dos, vibes y aprendizajes desde la terminal o el browser. Los guarda en archivos Markdown compatibles con Obsidian/Logseq (con sync opcional a Notion), los vincula a tickets de Jira y genera recaps diarios con Claude. Monitorea el estado de tus MRs y pipelines de GitLab con notificaciones nativas.
+Tu second brain personal. Captura notas, to-dos, vibes y aprendizajes desde la terminal o el browser. Los guarda en archivos Markdown compatibles con Obsidian/Logseq (con sync opcional a Notion), los vincula a tickets de Jira y genera recaps diarios con Claude. Monitorea el estado de tus MRs y pipelines de GitLab con notificaciones nativas. Transcribe reuniones de Google Meet automáticamente y las convierte en captures estructurados en tu vault.
 
 ---
 
@@ -11,7 +11,8 @@ Tu second brain personal. Captura notas, to-dos, vibes y aprendizajes desde la t
 - Vault local de Markdown (cualquier carpeta — Obsidian, Logseq, o carpeta vacía)
 - Cuenta Notion con integración configurada _(opcional, para sync en segundo plano)_
 - Cuenta GitLab con Personal Access Token _(opcional, para monitoreo de pipelines)_
-- API key de Anthropic _(opcional, solo para `brain recap`)_
+- API key de Anthropic _(opcional, para `brain recap` y estructuración de meets)_
+- API key de Groq _(opcional, para transcripción de audio de Google Meet via Whisper)_
 
 ---
 
@@ -50,8 +51,11 @@ PORT=3141
 GITLAB_URL=https://gitlab.com
 GITLAB_TOKEN=glpat-...
 
-# Claude (opcional, solo para brain recap)
+# Claude (opcional, para brain recap y estructuración de meets)
 ANTHROPIC_API_KEY=sk-ant-...
+
+# Groq (opcional, para transcripción de audio de Google Meet via Whisper)
+GROQ_API_KEY=gsk_...
 ```
 
 > API token de Jira: `https://id.atlassian.com/manage-profile/security/api-tokens`
@@ -350,6 +354,7 @@ Todos los endpoints requieren el header `x-api-key: brain-log-secret`.
 | `GET` | `/today` | Capturas del día |
 | `POST` | `/recap` | Genera recap con Claude y guarda en Notion |
 | `POST` | `/task` | Agrega ticket Jira a Notion Tasks. Body: `{ issueKey }` |
+| `POST` | `/transcribe` | Transcribe audio de Meet y guarda captures en vault. Body: `{ audio (base64), duration, startTime, meetUrl }` |
 
 ---
 
@@ -370,6 +375,37 @@ Todos los endpoints requieren el header `x-api-key: brain-log-secret`.
 - **Texto seleccionado**: selecciona texto en cualquier página → el popup lo precarga
 - **Click derecho**: selecciona texto → *brain-log: capturar selección*
 - **Jira detectado**: al abrir el popup en un ticket Jira aparece un banner con **+ Agregar a Tasks en Notion**
+
+### Transcripción de Google Meet
+
+Cuando abres el popup estando en un tab de Google Meet, aparece automáticamente la pestaña **🎙 Meet**.
+
+**Flujo:**
+1. Click **🔴 Iniciar grabación** — el ícono de la extensión pulsa mientras graba
+2. Habla durante la reunión (graba el audio del tab)
+3. Click **⏹ Terminar y transcribir** — la extensión envía el audio a la API
+
+**Lo que hace la API:**
+- Transcribe con **Whisper** (via Groq) — modelo `whisper-large-v3`
+- **Claude Haiku** analiza la transcripción y extrae captures estructurados
+- Guarda en el vault: header de sesión `HH:MM - HH:MM`, captures (notes, todos, learns, decisions), recap del meet y transcripción raw
+
+**Resultado en el vault** (`journals/YYYY_MM_DD.md`):
+```markdown
+### Meet 10:30 - 11:15
+
+- 📝 se decidió migrar el schema de workorders a MongoDB 5.0 #note [DECISIÓN]
+- ☑️ escribir specs del nuevo endpoint antes del viernes #todo
+- 🧠 los índices compuestos mejoran el query de PO en un 80% #learn
+- 📝 [MEET RECAP] Se discutió la migración del schema. Decisiones: migrar a MongoDB 5.0. Action items: escribir specs
+```
+
+**Requisitos para Meet transcription:**
+- La API debe estar levantada: `pnpm dev:api`
+- `GROQ_API_KEY` configurado en `~/.brain-log/.env`
+- `ANTHROPIC_API_KEY` configurado en `~/.brain-log/.env`
+
+**Plataformas soportadas:** Google Meet. El sistema usa un provider pattern extensible — Zoom y Teams pueden agregarse como providers adicionales.
 
 ---
 
@@ -515,11 +551,19 @@ Tests      16 passed (16)
 brain-log/
   apps/
     api/                → API HTTP
+      routes/
+        transcribe.ts   → POST /transcribe: Whisper + Claude → vault
     menubar/            → app macOS menubar (Electron)
   packages/
     cli/                → comandos de terminal
-    shared/             → providers (notes/pm/git), Jira, Claude + estado
+    shared/             → providers (notes/pm/git/meet), Jira, Claude + estado
+      providers/
+        meet/           → provider pattern para plataformas de video
+          types.ts      → interfaces MeetProvider, TranscriptionResult
+          google-meet.ts→ implementación para meet.google.com
+          index.ts      → factory: detecta provider por URL
     extension/          → extensión Chrome
+      offscreen.html/js → grabación de audio del tab (MediaRecorder, MV3)
   .env                  → credenciales del proyecto
 ```
 
@@ -550,6 +594,11 @@ brain mr-watch "https://gitlab.com/grupo/proyecto/-/merge_requests/XXX"
 
 # Al hacer un MR de deploy, incluir el issue key en el título:
 # "deploy to qa: GCD-1134" → Jira lo linkea y el cron mueve el ticket automáticamente
+
+# Durante una reunión de Google Meet
+# → abrir extensión Chrome → pestaña 🎙 Meet (aparece automáticamente)
+# → Iniciar grabación → hablar → Terminar y transcribir
+# → captures guardados automáticamente en el vault
 
 # Al final del día
 brain today                     # revisar capturas del vault local
@@ -588,6 +637,8 @@ brain task --setup <notion-page-id>
 ```
 Agregar `NOTION_TASKS_DB` al `.env`.
 
-4. Levantar la API (solo si se usa la extensión Chrome): `pnpm dev:api`
+4. Levantar la API (solo si se usa la extensión Chrome o Meet transcription): `pnpm dev:api`
 
 5. _(Opcional)_ Instalar la extensión Chrome desde `packages/extension` con **Load unpacked**
+
+6. _(Opcional)_ Para Meet transcription: agregar `GROQ_API_KEY` y `ANTHROPIC_API_KEY` al `.env` y asegurarse de que la API esté levantada.
