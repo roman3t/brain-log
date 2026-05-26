@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('brain', {
   transitionIssue: (key: string, toStatus: string) => ipcRenderer.invoke('transition-issue', key, toStatus),
   getWatchedMRs: () => ipcRenderer.invoke('get-watched-mrs'),
   getGitlabPipelines: (urls: string[]) => ipcRenderer.invoke('get-gitlab-pipelines', urls),
+  clearEvents: () => ipcRenderer.invoke('clear-events'),
   openUrl: (url: string) => ipcRenderer.invoke('open-url', url),
   onRefresh: (cb: () => void) => ipcRenderer.on('refresh', cb),
 })

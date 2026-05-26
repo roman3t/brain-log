@@ -57,9 +57,9 @@ function createTray() {
     }
 
     const { width } = win.getBounds()
-    const display = screen.getPrimaryDisplay()
-    const screenWidth = display.workAreaSize.width
-    const x = Math.max(0, Math.min(Math.round(bounds.x - width / 2), screenWidth - width))
+    const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y })
+    const { x: workX, width: workWidth } = display.workArea
+    const x = Math.max(workX, Math.min(Math.round(bounds.x - width / 2), workX + workWidth - width))
     const y = Math.round(bounds.y + bounds.height + 4)
 
     win.setPosition(x, y)
@@ -200,6 +200,15 @@ ipcMain.handle('get-gitlab-pipelines', async (_, prUrls: string[]) => {
   }
 
   return results
+})
+
+ipcMain.handle('clear-events', () => {
+  try {
+    if (fs.existsSync(LOG_PATH)) fs.writeFileSync(LOG_PATH, '', 'utf-8')
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: e.message }
+  }
 })
 
 ipcMain.handle('open-url', (_, url: string) => shell.openExternal(url))

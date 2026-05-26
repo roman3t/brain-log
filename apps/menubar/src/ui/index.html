@@ -267,7 +267,10 @@
 
   <!-- Recent events -->
   <div class="section">
-    <div class="label" style="margin-bottom:6px">Últimos eventos</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div class="label">Últimos eventos</div>
+      <button class="icon-btn no-drag" id="clear-events-btn" title="Limpiar eventos" style="font-size:11px;padding:2px 6px">🗑</button>
+    </div>
     <div id="events-content"><span class="muted">Cargando...</span></div>
   </div>
 
@@ -576,6 +579,13 @@
       btn.disabled = false
       loadAll()
     }, 2500)
+  }
+
+  // ── Clear events ─────────────────────────────────────────────
+
+  document.getElementById('clear-events-btn').onclick = async () => {
+    await api.clearEvents()
+    loadEvents()
   }
 
   // ── Refresh ──────────────────────────────────────────────────
