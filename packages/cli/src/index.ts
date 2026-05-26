@@ -519,8 +519,9 @@ program
           spinner.fail(chalk.red(e.message))
           process.exit(1)
         }
+        const isConfigError = !process.env.JIRA_HOST || !process.env.JIRA_EMAIL || !process.env.JIRA_API_TOKEN
         addActiveTask({ id: issueKey, title: issueKey, url: '', setAt: new Date().toISOString(), provider: 'jira' })
-        spinner.warn(chalk.yellow(`Tarea activa: ${issueKey}`) + chalk.dim(' (Jira no configurado, usando solo el ID)'))
+        spinner.warn(chalk.yellow(`Tarea activa: ${issueKey}`) + chalk.dim(isConfigError ? ' (Jira no configurado, usando solo el ID)' : ` (error Jira: ${e.message})`))
       }
     }
   })
@@ -754,7 +755,7 @@ program
 
     const jql = `project = GCD AND sprint in openSprints() AND assignee = currentUser() AND status != "Done" ORDER BY updated DESC`
 
-    const PIPELINE = ['TO DO', 'DOING', 'TESTING DEV', 'TESTING QA', 'TESTING PROD', 'DEPLOY TO PROD', 'Done']
+    const PIPELINE = ['TO DO', 'DOING', 'TESTING DEV', 'TESTING QA', 'DEPLOY TO PROD', 'TESTING PROD', 'Done']
     const pipelineIdx = (status: string) =>
       PIPELINE.findIndex(s => s.toLowerCase() === status.toLowerCase())
 

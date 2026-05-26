@@ -1,10 +1,21 @@
-// ── Meet: grabación via offscreen document (MV3) ─────────────────
 let recordingState = {
   isRecording: false,
   startTime: null,
   tabId: null,
   url: null,
 }
+
+chrome.storage.local.get('recordingState', (stored) => {
+  if (stored.recordingState?.isRecording) {
+    recordingState = stored.recordingState
+  }
+})
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'brain-log-keepalive' && !recordingState.isRecording) {
+    chrome.alarms.clear('brain-log-keepalive')
+  }
+})
 
 const OFFSCREEN_URL = chrome.runtime.getURL('offscreen.html')
 
@@ -44,6 +55,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
               tabId: msg.tabId,
               url: msg.url,
             }
+            chrome.storage.local.set({ recordingState })
+            chrome.alarms.create('brain-log-keepalive', { periodInMinutes: 0.4 })
             sendResponse({ ok: true })
           } else {
             sendResponse({ ok: false, error: response?.error || 'Error al capturar audio' })
@@ -60,6 +73,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     const meetUrl = recordingState.url
     const startTime = recordingState.startTime
     recordingState = { isRecording: false, startTime: null, tabId: null, url: null }
+    chrome.storage.local.remove('recordingState')
+    chrome.alarms.clear('brain-log-keepalive')
 
     chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_CAPTURE' }, async response => {
       if (response?.ok) {
@@ -115,7 +130,6 @@ async function sendToAPI(base64, duration, meetUrl, startTime) {
   }
 }
 
-// ── Context menu: click derecho → capturar selección ─────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'brain-capture',
