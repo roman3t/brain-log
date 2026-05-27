@@ -21,7 +21,7 @@ function getClients() {
 
 router.post('/transcribe', async (req, res) => {
   try {
-    const { audio, duration, startTime } = req.body
+    const { audio, duration, startTime, isChunk = false, previousContext = '' } = req.body
 
     if (!audio) {
       res.status(400).json({ error: 'audio is required' })
@@ -34,11 +34,14 @@ router.post('/transcribe', async (req, res) => {
     const audioBuffer = Buffer.from(audio, 'base64')
     const audioFile = new File([audioBuffer], 'meet.webm', { type: 'audio/webm' })
 
-    const transcription = await openai.audio.transcriptions.create({
+    const transcriptionParams: Parameters<typeof openai.audio.transcriptions.create>[0] = {
       file: audioFile,
       model: 'whisper-large-v3',
       response_format: 'text',
-    }) as unknown as string
+    }
+    if (previousContext) transcriptionParams.prompt = previousContext
+
+    const transcription = await openai.audio.transcriptions.create(transcriptionParams) as unknown as string
 
     // 2. Claude estructura la transcripción en captures
     const structuredResponse = await anthropic.messages.create({
@@ -78,14 +81,16 @@ Reglas:
     const cleanJson = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
     const structured = JSON.parse(cleanJson)
 
-    // 3. Escribir header de sesión con intervalo inicio - fin
+    // 3. Escribir header de sesión con intervalo inicio - fin (solo en el chunk final)
     const now = new Date()
     const today = now.toISOString().split('T')[0]
-    const endTime = now.toTimeString().slice(0, 5)
-    const startTimeStr = startTime
-      ? new Date(Number(startTime)).toTimeString().slice(0, 5)
-      : endTime
-    await saveMeetSessionHeader(today, `${startTimeStr} - ${endTime}`)
+    if (!isChunk) {
+      const endTime = now.toTimeString().slice(0, 5)
+      const startTimeStr = startTime
+        ? new Date(Number(startTime)).toTimeString().slice(0, 5)
+        : endTime
+      await saveMeetSessionHeader(today, `${startTimeStr} - ${endTime}`)
+    }
 
     let capturesCount = 0
 
@@ -123,11 +128,14 @@ Reglas:
       date: today,
     })
 
+    const lastWords = transcription.split(/\s+/).slice(-200).join(' ')
+
     res.json({
       ok: true,
       capturesCount,
       recap: structured.recap,
       transcriptionLength: transcription.length,
+      lastWords,
     })
 
   } catch (err: any) {
