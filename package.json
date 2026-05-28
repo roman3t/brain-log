@@ -3,8 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev:api": "pnpm --filter api dev",
-    "dev:cli": "pnpm --filter cli dev",
-    "build": "pnpm --filter shared build && pnpm --filter cli build"
+    "dev": "pnpm --filter @brain-log/shared build && pnpm -r --parallel --stream dev",
+    "dev:api": "pnpm --filter @brain-log/api dev",
+    "dev:cli": "pnpm --filter brain-log dev",
+    "dev:menubar": "pnpm --filter brain-log-menubar dev",
+    "dev:shared": "pnpm --filter @brain-log/shared dev",
+    "build": "pnpm --filter @brain-log/shared build && pnpm --filter brain-log build"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
   }
 }

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc && cp src/ui/index.html dist/ui/index.html",
+    "build": "tsc && mkdir -p dist/ui && cp src/ui/index.html dist/ui/index.html",
     "dev": "npm run build && electron .",
     "start": "electron .",
     "stop": "pkill -f 'electron.*brain-log' || true",
