@@ -63,12 +63,16 @@
     }
 
     /* ── Active task ── */
-    .active-task {
-      padding: 10px 14px;
+    .active-task-wrapper {
+      padding: 12px 14px;
       border-bottom: 1px solid var(--border);
-      cursor: pointer;
     }
-    .active-task:hover { background: var(--surface); }
+
+    .active-task-card {
+      background: #111418;
+      border-radius: 16px;
+      padding: 14px 16px 12px;
+    }
 
     .label {
       font-size: 10px;
@@ -78,19 +82,60 @@
       margin-bottom: 4px;
     }
 
-    .task-key { color: var(--accent); font-weight: 600; font-size: 11px; }
-
-    .task-title {
-      color: var(--text);
-      margin-top: 2px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .task-top-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
     }
 
-    .task-meta { color: var(--muted); font-size: 10px; margin-top: 2px; }
+    .task-key { color: var(--text); font-weight: 700; font-size: 12px; }
 
-    .task-prs { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+    .task-status-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      flex: 1;
+    }
+
+    .task-status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+
+    .task-title-lg {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+
+    .task-meta {
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 10px;
+      text-align: center;
+    }
+
+    .task-prs {
+      margin-top: 8px;
+      padding: 6px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
     .pr-row {
       display: flex; align-items: center; gap: 5px;
       padding: 2px 4px; border-radius: 3px; cursor: pointer;
@@ -129,21 +174,22 @@
       50%       { opacity: 0.3; }
     }
 
-    .task-actions { display: flex; gap: 6px; margin-top: 6px; }
+    .task-actions { display: flex; gap: 6px; margin-top: 10px; }
     .task-btn {
       flex: 1;
-      padding: 4px 8px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
+      padding: 5px 8px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
       color: var(--text);
-      border-radius: 4px;
+      border-radius: 8px;
       cursor: pointer;
       font-size: 11px;
       font-family: inherit;
       text-align: center;
+      transition: background 0.15s, border-color 0.15s;
     }
-    .task-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-    .task-btn:disabled { opacity: 0.5; cursor: default; }
+    .task-btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); border-color: var(--accent); color: var(--accent); }
+    .task-btn:disabled { opacity: 0.4; cursor: default; }
 
     /* ── Section ── */
     .section {
@@ -241,15 +287,20 @@
 <div class="content no-drag">
 
   <!-- Active task -->
-  <div id="active-task" class="active-task" style="display:none">
-    <div class="label">Tarea activa</div>
-    <div><span class="task-key" id="task-key"></span> <span class="task-status" id="task-status" style="color:var(--muted);font-size:10px"></span></div>
-    <div class="task-title" id="task-title"></div>
-    <div class="task-meta" id="task-meta"></div>
-    <div class="task-prs no-drag" id="task-prs" style="display:none"></div>
-    <div class="task-actions no-drag">
-      <button class="task-btn" id="task-open-btn">↗ Abrir</button>
-      <button class="task-btn" id="task-advance-btn">→ Avanzar</button>
+  <div id="active-task" class="active-task-wrapper" style="display:none">
+    <div class="active-task-card">
+      <div class="task-top-row">
+        <span class="task-key" id="task-key"></span>
+        <span class="task-status-label" id="task-status"></span>
+        <span class="task-status-dot"></span>
+      </div>
+      <div class="task-title-lg" id="task-title"></div>
+      <div class="task-prs no-drag" id="task-prs" style="display:none"></div>
+      <div class="task-actions no-drag">
+        <button class="task-btn" id="task-advance-btn">→ Avanzar</button>
+        <button class="task-btn" id="task-open-btn">Abrir ↗</button>
+      </div>
+      <div class="task-meta" id="task-meta"></div>
     </div>
   </div>
 
@@ -435,7 +486,9 @@
     } catch { statusEl.textContent = '' }
 
     el.style.display = 'block'
-    document.getElementById('task-open-btn').onclick = (e) => { e.stopPropagation(); api.openUrl(task.url) }
+    const openBtn = document.getElementById('task-open-btn')
+    openBtn.textContent = 'Abrir ↗'
+    openBtn.onclick = (e) => { e.stopPropagation(); api.openUrl(task.url) }
   }
 
   function updateAdvanceBtn(status) {
@@ -443,12 +496,16 @@
     const idx = PIPELINE.findIndex(s => s.toLowerCase() === (status || '').toLowerCase())
     const next = PIPELINE[idx + 1]
     if (!next || next === 'Done') {
-      btn.textContent = idx >= 0 ? '✓ En ' + status : '→ Avanzar'
+      btn.textContent = idx >= 0 ? '✓ ' + capitalize(status) : 'Avanzar →'
       btn.disabled = !next
     } else {
-      btn.textContent = `→ ${next}`
+      btn.textContent = capitalize(next) + ' →'
       btn.disabled = false
     }
+  }
+
+  function capitalize(s) {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s
   }
 
   document.getElementById('task-advance-btn').onclick = async (e) => {

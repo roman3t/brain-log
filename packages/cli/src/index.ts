@@ -11,8 +11,8 @@ import inquirer from 'inquirer'
 function notify(title: string, message: string, subtitle?: string) {
   try {
     const clean = (s: string) => s.replace(/"/g, '').replace(/'/g, '')
-    const sub = subtitle ? `, subtitle:"${clean(subtitle)}"` : ''
-    execSync(`osascript -e 'display notification "${clean(message)}" with title "${clean(title)}"${sub}'`)
+    const sub = subtitle ? ` subtitle "${clean(subtitle)}"` : ''
+    execSync(`osascript -e 'display notification "${clean(message)}" with title "${clean(title)}"${sub}'`, { stdio: 'pipe' })
   } catch {}
 }
 import {
@@ -809,14 +809,13 @@ program
           const applicable = rules
             .map(rule => ({ rule, targetIdx: pipelineIdx(rule.transition) }))
             .filter(({ targetIdx }) => targetIdx > currentIdx)
-            .filter(({ rule, targetIdx: tIdx }) =>
-              prs.some(p =>
-                p.status === 'MERGED' &&
+            .filter(({ rule }) => {
+              const branchPRs = prs.filter(p =>
                 p.targetBranch === rule.branch &&
-                // Si fue regresado, solo contar PRs mergeados después de la regresión
                 (!backward || !movedAt || p.lastUpdated > movedAt),
-              ),
-            )
+              )
+              return branchPRs.length > 0 && branchPRs.every(p => p.status === 'MERGED')
+            })
 
           if (applicable.length === 0) continue
 

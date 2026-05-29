@@ -33,9 +33,6 @@ function createWindow() {
     },
   })
 
-  win.setAlwaysOnTop(true, 'floating')
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-
   win.loadFile(path.join(__dirname, 'ui', 'index.html'))
 
   win.on('blur', () => {
