@@ -257,14 +257,15 @@ export async function transitionJiraIssue(issueKey: string, transitionName: stri
   if (!res.ok) throw new Error(`Jira: no se pudieron obtener transiciones para ${issueKey}`)
 
   const data = await res.json() as any
-  const transitions: { id: string; name: string }[] = data.transitions || []
+  const transitions: { id: string; name: string; to?: { name: string } }[] = data.transitions || []
 
   const match = transitions.find(t =>
-    t.name.toLowerCase().includes(transitionName.toLowerCase()),
+    t.name.toLowerCase().includes(transitionName.toLowerCase()) ||
+    t.to?.name?.toLowerCase() === transitionName.toLowerCase(),
   )
 
   if (!match) {
-    const available = transitions.map(t => t.name).join(', ')
+    const available = transitions.map(t => `${t.name} (→${t.to?.name ?? '?'})`).join(', ')
     throw new Error(`Transición "${transitionName}" no encontrada. Disponibles: ${available}`)
   }
 
