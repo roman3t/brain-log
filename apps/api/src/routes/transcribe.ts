@@ -46,7 +46,7 @@ router.post('/transcribe', async (req, res) => {
     // 2. Claude estructura la transcripción en captures
     const structuredResponse = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
+      max_tokens: 3000,
       system: `Eres un asistente que analiza transcripciones de reuniones de trabajo.
 Extrae información relevante y estructúrala en JSON.
 Responde SOLO con JSON válido, sin markdown ni backticks:

@@ -6,6 +6,7 @@ let recordingState = {
 }
 
 let sessionContext = '' // last ~200 words of transcription for Whisper context
+let chunkCount = 0
 
 chrome.storage.local.get('recordingState', (stored) => {
   if (stored.recordingState?.isRecording) {
@@ -52,6 +53,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         chrome.runtime.sendMessage({ type: 'OFFSCREEN_START_CAPTURE', streamId }, response => {
           if (response?.ok) {
             sessionContext = ''
+            chunkCount = 0
             recordingState = {
               isRecording: true,
               startTime: Date.now(),
@@ -73,7 +75,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'AUDIO_CHUNK') {
-    sendChunkToAPI(msg.base64)
+    sendChunkToAPI(msg.base64, msg.duration)
     return true
   }
 
@@ -86,7 +88,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     chrome.runtime.sendMessage({ type: 'OFFSCREEN_STOP_CAPTURE' }, async response => {
       if (response?.ok) {
-        const duration = Math.floor((Date.now() - startTime) / 1000)
+        const duration = response.chunkDuration ?? Math.floor((Date.now() - startTime) / 1000)
         chrome.runtime.sendMessage({ type: 'PROCESSING_STATUS', status: 'Transcribiendo...' })
         if (response.base64) {
           await sendToAPI(response.base64, duration, meetUrl, startTime)
@@ -106,7 +108,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 })
 
-async function sendChunkToAPI(base64) {
+async function sendChunkToAPI(base64, duration = 600) {
   try {
     const { apiUrl, apiSecret } = await chrome.storage.sync.get(['apiUrl', 'apiSecret'])
     if (!apiUrl) return
@@ -118,15 +120,26 @@ async function sendChunkToAPI(base64) {
         'x-api-key': apiSecret || 'brain-log-secret',
         'ngrok-skip-browser-warning': 'true',
       },
-      body: JSON.stringify({ audio: base64, duration: 600, isChunk: true, previousContext: sessionContext }),
+      body: JSON.stringify({ audio: base64, duration, isChunk: true, previousContext: sessionContext }),
     })
 
     if (res.ok) {
       const data = await res.json()
       if (data.lastWords) sessionContext = data.lastWords
+      chunkCount++
+      chrome.runtime.sendMessage({
+        type: 'CHUNK_SENT',
+        chunkNumber: chunkCount,
+        capturesCount: data.capturesCount ?? 0,
+      })
+    } else {
+      const err = await res.json().catch(() => ({}))
+      console.error('brain-log: chunk API error', err)
+      chrome.runtime.sendMessage({ type: 'CHUNK_ERROR', chunkNumber: chunkCount + 1 })
     }
   } catch (err) {
     console.error('brain-log: error sending audio chunk', err)
+    chrome.runtime.sendMessage({ type: 'CHUNK_ERROR', chunkNumber: chunkCount + 1 })
   }
 }
 

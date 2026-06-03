@@ -806,7 +806,7 @@ program
             fs.writeFileSync(notifiedPath, JSON.stringify(notified, null, 2))
           }
 
-          const applicable = rules
+          const mergedCandidates = rules
             .map(rule => ({ rule, targetIdx: pipelineIdx(rule.transition) }))
             .filter(({ targetIdx }) => targetIdx > currentIdx)
             .filter(({ rule }) => {
@@ -817,12 +817,48 @@ program
               return branchPRs.length > 0 && branchPRs.every(p => p.status === 'MERGED')
             })
 
+          if (mergedCandidates.length === 0) continue
+
+          // Verificar que el pipeline post-merge haya terminado con éxito
+          const git = process.env.GITLAB_TOKEN ? getGitProvider() : null
+          const applicable: typeof mergedCandidates = []
+
+          for (const candidate of mergedCandidates) {
+            if (!git) {
+              applicable.push(candidate)
+              continue
+            }
+
+            const branchPRs = prs.filter(p =>
+              p.targetBranch === candidate.rule.branch &&
+              (!backward || !movedAt || p.lastUpdated > movedAt),
+            )
+
+            const pipelineStatuses = await Promise.all(
+              branchPRs.map(async p => {
+                try {
+                  const mrStatus = await git.getMRStatus(p.url)
+                  return mrStatus.pipelineStatus
+                } catch {
+                  return null
+                }
+              }),
+            )
+
+            const allSuccess = pipelineStatuses.every(s => s === 'success')
+            if (!allSuccess) {
+              console.log(`[${ts}] ${issue.key} pipeline no listo para ${candidate.rule.branch}: [${pipelineStatuses.join(', ')}] — esperando`)
+            } else {
+              applicable.push(candidate)
+            }
+          }
+
           if (applicable.length === 0) continue
 
           applicable.sort((a, b) => b.targetIdx - a.targetIdx)
           const { rule } = applicable[0]
           const applied = await transitionJiraIssue(issue.key, rule.transition)
-          console.log(`[${ts}] ${issue.key} → ${applied} (PR mergeado a ${rule.branch})`)
+          console.log(`[${ts}] ${issue.key} → ${applied} (PR mergeado a ${rule.branch}, pipeline success)`)
           notify('brain-log', `${issue.key} → ${applied}`, issue.title.slice(0, 50))
         } catch (e: any) {
           console.error(`[${ts}] ${issue.key} error: ${e.message}`)

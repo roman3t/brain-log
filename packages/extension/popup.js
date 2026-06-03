@@ -280,6 +280,22 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'PROCESSING_STATUS') {
     document.getElementById('processing-status').textContent = msg.status
   }
+
+  if (msg.type === 'CHUNK_SENT') {
+    const el = document.getElementById('chunk-status')
+    if (el) {
+      el.style.color = '#4ade80'
+      el.textContent = `Chunk ${msg.chunkNumber} guardado (${msg.capturesCount} captures)`
+    }
+  }
+
+  if (msg.type === 'CHUNK_ERROR') {
+    const el = document.getElementById('chunk-status')
+    if (el) {
+      el.style.color = '#f87171'
+      el.textContent = `Error en chunk ${msg.chunkNumber} — se reintentará al finalizar`
+    }
+  }
 })
 
 // ── Meet: UI helpers ─────────────────────────────────────────────

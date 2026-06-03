@@ -4,6 +4,7 @@ let headerChunk = null
 let audioContext = null
 let stream = null
 let chunkInterval = null
+let chunkStartTime = null
 
 const CHUNK_INTERVAL_MS = 10 * 60 * 1000 // 10 minutes
 
@@ -50,6 +51,7 @@ async function startCapture(streamId) {
 
   currentChunks = []
   headerChunk = null
+  chunkStartTime = Date.now()
 
   mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm', audioBitsPerSecond: 32000 })
   mediaRecorder.ondataavailable = e => {
@@ -74,9 +76,11 @@ async function flushCurrentChunks() {
   const arrayBuffer = await blob.arrayBuffer()
   const base64 = arrayBufferToBase64(arrayBuffer)
 
+  const duration = Math.floor((Date.now() - chunkStartTime) / 1000)
   currentChunks = []
+  chunkStartTime = Date.now()
 
-  chrome.runtime.sendMessage({ type: 'AUDIO_CHUNK', base64 })
+  chrome.runtime.sendMessage({ type: 'AUDIO_CHUNK', base64, duration })
 }
 
 async function stopCapture() {
@@ -104,8 +108,9 @@ async function stopCapture() {
         const blob = new Blob(blobParts, { type: 'audio/webm' })
         const arrayBuffer = await blob.arrayBuffer()
         const base64 = arrayBufferToBase64(arrayBuffer)
+        const chunkDuration = Math.floor((Date.now() - chunkStartTime) / 1000)
         if (audioContext) { audioContext.close(); audioContext = null }
-        resolve({ ok: true, base64 })
+        resolve({ ok: true, base64, chunkDuration })
       } catch (err) {
         reject(err)
       }
