@@ -244,7 +244,8 @@ document.getElementById('start-recording-btn').addEventListener('click', () => {
         timerInterval = setInterval(updateTimer, 1000)
         document.getElementById('status').style.background = '#f87171'
       } else {
-        showMeetToast('Error al iniciar grabación', 'error')
+        const reason = response?.error || chrome.runtime.lastError?.message || 'sin detalle'
+        showMeetToast(`Error al iniciar grabación: ${reason}`, 'error')
       }
     })
   })

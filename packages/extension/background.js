@@ -27,6 +27,26 @@ async function ensureOffscreen() {
   }
 }
 
+// Manda OFFSCREEN_START_CAPTURE al offscreen y reintenta si aún no registró su
+// listener (createDocument puede resolver antes de que el script corra): en ese
+// caso la respuesta llega undefined o con error de conexión.
+function startOffscreenCapture(payload, attempt = 0) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(payload, (response) => {
+      const failed = chrome.runtime.lastError || response === undefined
+      if (failed && attempt < 8) {
+        setTimeout(() => startOffscreenCapture(payload, attempt + 1).then(resolve), 100)
+        return
+      }
+      if (failed) {
+        resolve({ ok: false, error: chrome.runtime.lastError?.message || 'el offscreen no respondió' })
+        return
+      }
+      resolve(response)
+    })
+  })
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'GET_RECORDING_STATE') {
     chrome.storage.local.get('recordingState', ({ recordingState: stored }) => {
@@ -43,26 +63,30 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       try {
         await ensureOffscreen()
+        // El offscreen no tiene acceso a chrome.storage, así que le pasamos las
+        // credenciales (que sí leemos aquí) en el mensaje de inicio.
+        const { apiUrl, apiSecret } = await chrome.storage.sync.get(['apiUrl', 'apiSecret'])
         const startTime = Date.now()
-        chrome.runtime.sendMessage({
+        const response = await startOffscreenCapture({
           type: 'OFFSCREEN_START_CAPTURE',
           streamId,
           meetUrl: msg.url,
           startTime,
-        }, response => {
-          if (response?.ok) {
-            recordingState = {
-              isRecording: true,
-              startTime,
-              tabId: msg.tabId,
-              url: msg.url,
-            }
-            chrome.storage.local.set({ recordingState })
-            sendResponse({ ok: true })
-          } else {
-            sendResponse({ ok: false, error: response?.error || 'Error al capturar audio' })
-          }
+          apiUrl,
+          apiSecret,
         })
+        if (response?.ok) {
+          recordingState = {
+            isRecording: true,
+            startTime,
+            tabId: msg.tabId,
+            url: msg.url,
+          }
+          chrome.storage.local.set({ recordingState })
+          sendResponse({ ok: true })
+        } else {
+          sendResponse({ ok: false, error: response?.error || 'Error al capturar audio' })
+        }
       } catch (err) {
         sendResponse({ ok: false, error: err.message })
       }

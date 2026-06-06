@@ -28,7 +28,7 @@ function arrayBufferToBase64(buffer) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'OFFSCREEN_START_CAPTURE') {
-    startCapture(msg.streamId, msg.meetUrl, msg.startTime)
+    startCapture(msg)
       .then(() => sendResponse({ ok: true }))
       .catch(err => sendResponse({ ok: false, error: err.message }))
     return true
@@ -39,14 +39,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 })
 
-async function startCapture(streamId, url, startTime) {
-  const creds = await chrome.storage.sync.get(['apiUrl', 'apiSecret'])
-  apiUrl = creds.apiUrl || null
-  apiSecret = creds.apiSecret || 'brain-log-secret'
-  meetUrl = url || null
-  sessionStartTime = startTime || Date.now()
+async function startCapture(msg) {
+  // chrome.storage no existe en el offscreen: el SW nos pasa las credenciales.
+  apiUrl = msg.apiUrl || null
+  apiSecret = msg.apiSecret || 'brain-log-secret'
+  meetUrl = msg.meetUrl || null
+  sessionStartTime = msg.startTime || Date.now()
   sessionContext = ''
   chunkCount = 0
+
+  const streamId = msg.streamId
 
   stream = await navigator.mediaDevices.getUserMedia({
     audio: {
