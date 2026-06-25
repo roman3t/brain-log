@@ -39,7 +39,7 @@ router.post('/transcribe', async (req, res) => {
       model: 'whisper-large-v3',
       response_format: 'text',
     }
-    if (previousContext) transcriptionParams.prompt = previousContext
+    if (previousContext) transcriptionParams.prompt = previousContext.slice(-800)
 
     const transcription = await openai.audio.transcriptions.create(transcriptionParams) as unknown as string
 
@@ -120,15 +120,15 @@ Reglas:
       })
     }
 
-    // 5. Guardar transcripción raw (primeros 500 chars)
+    // 5. Guardar transcripción raw (truncada a 1800 chars por límite de Notion)
     await saveCapture({
       type: 'note',
-      raw: `[TRANSCRIPCIÓN RAW] ${transcription}`,
+      raw: `[TRANSCRIPCIÓN RAW] ${transcription.slice(0, 1800)}`,
       source: 'browser',
       date: today,
     })
 
-    const lastWords = transcription.split(/\s+/).slice(-200).join(' ')
+    const lastWords = transcription.slice(-800)
 
     res.json({
       ok: true,
