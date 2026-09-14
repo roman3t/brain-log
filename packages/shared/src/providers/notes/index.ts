@@ -100,3 +100,24 @@ export async function getChecklist(taskId: string): Promise<import('./markdown')
   if (provider instanceof MarkdownProvider) return provider.getChecklist(taskId)
   return []
 }
+
+export async function saveEstimate(
+  task: import('./markdown').TaskPage,
+  data: { points: number; summary: string; rationale?: string },
+): Promise<string | null> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) return provider.saveEstimate(task, data)
+  return null
+}
+
+export async function listBacklogTaskIds(): Promise<Array<{ id: string; archived: boolean }>> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) return provider.listTaskIds()
+  return []
+}
+
+export async function archiveTaskIfDone(taskId: string, status: string, isDone: boolean): Promise<string | null> {
+  const provider = getNotesProvider()
+  if (provider instanceof MarkdownProvider) return provider.archiveTaskIfDone(taskId, status, isDone)
+  return null
+}

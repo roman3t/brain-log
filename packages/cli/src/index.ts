@@ -60,6 +60,10 @@ import {
   completeChecklistItem,
   addLogEntry,
   getChecklist,
+  summarizeStoryForEstimate,
+  saveEstimate,
+  listBacklogTaskIds,
+  archiveTaskIfDone,
 } from '@brain-log/shared'
 
 const program = new Command()
@@ -533,7 +537,101 @@ program
   .option('--board', 'Muestra el tablero del sprint activo')
   .option('--todo', 'Tickets en TO DO — selecciona para asignarte y mover')
   .option('--all', 'Incluye tickets de todo el equipo (no solo los tuyos)')
-  .action(async (opts: { board?: boolean; todo?: boolean; all?: boolean }) => {
+  .option('--estimate', 'Genera un .md con resumen de cada historia en TO DO para puntuar')
+  .option('--archive-done', 'Mueve a task-jira/done/ las páginas del backlog cuyo ticket ya está en Done')
+  .action(async (opts: { board?: boolean; todo?: boolean; all?: boolean; estimate?: boolean; archiveDone?: boolean }) => {
+    if (opts.archiveDone) {
+      const spinner = ora('Revisando estado del backlog local...').start()
+      try {
+        const localTasks = await listBacklogTaskIds()
+        if (localTasks.length === 0) {
+          spinner.warn(chalk.yellow('No hay páginas en task-jira/'))
+          return
+        }
+
+        let archived = 0
+        let restored = 0
+        let skipped = 0
+        for (const { id, archived: wasArchived } of localTasks) {
+          spinner.text = `Consultando ${id}...`
+          try {
+            const issue = await getJiraIssue(id)
+            const isDone = issue.status === 'Done'
+            const path = await archiveTaskIfDone(id, issue.status, isDone)
+            if (isDone && !wasArchived) { console.log(chalk.dim(`  ${id} → done/ (${issue.status})`)); archived++ }
+            else if (!isDone && wasArchived) { console.log(chalk.dim(`  ${id} ← task-jira/ (${issue.status})`)); restored++ }
+            void path
+          } catch {
+            skipped++
+          }
+        }
+
+        spinner.succeed(chalk.green(`Backlog sincronizado — ${archived} archivada(s), ${restored} restaurada(s)${skipped ? `, ${skipped} sin consultar` : ''}`))
+      } catch (e: any) {
+        spinner.fail(chalk.red(e.message))
+        process.exit(1)
+      }
+      return
+    }
+
+    if (opts.estimate) {
+      validateConfig()
+      const spinner = ora('Cargando tickets TO DO...').start()
+      try {
+        const issues = await searchJiraIssues('project = GCD AND sprint in openSprints() AND status = "TO DO" ORDER BY priority DESC')
+
+        if (issues.length === 0) {
+          spinner.stop()
+          console.log(chalk.yellow('\nNo hay tickets en TO DO\n'))
+          return
+        }
+
+        const estimates: Array<{ issue: typeof issues[number]; est: Awaited<ReturnType<typeof summarizeStoryForEstimate>> }> = []
+        for (const issue of issues) {
+          spinner.text = `Resumiendo ${issue.key}...`
+          const detail = await getJiraIssueDetail(issue.key)
+          const est = await summarizeStoryForEstimate({
+            title: detail.title,
+            description: detail.description,
+            comments: detail.comments.map(c => `${c.author}: ${c.body}`),
+          })
+          estimates.push({ issue, est })
+        }
+        spinner.stop()
+
+        const FIB = [1, 2, 3, 5, 8, 13, 21]
+        const savedPaths: string[] = []
+        for (const { issue, est } of estimates) {
+          console.log()
+          console.log(chalk.bold(`${chalk.cyan(issue.key)} — ${issue.title}`))
+          console.log(chalk.dim(`${issue.priority || '-'} · ${issue.assignee || 'Sin asignar'}`))
+          console.log(est.summary)
+          if (est.rationale) console.log(chalk.dim(`Sugerencia de Claude: ${est.rationale}`))
+
+          const { points } = await inquirer.prompt([{
+            type: 'list',
+            name: 'points',
+            message: 'Puntos (Fibonacci):',
+            default: FIB.indexOf(est.suggestedPoints),
+            choices: FIB.map(p => ({ name: p === est.suggestedPoints ? `${p} (sugerido)` : `${p}`, value: p })),
+          }])
+
+          const filePath = await saveEstimate(
+            { id: issue.key, title: issue.title, status: issue.status, priority: issue.priority, url: issue.url, activatedAt: new Date().toISOString() },
+            { points, summary: est.summary, rationale: est.rationale },
+          )
+          if (filePath) savedPaths.push(filePath)
+        }
+
+        console.log()
+        console.log(chalk.green(`✔ ${estimates.length} historias puntuadas y guardadas en el backlog (task-jira/)`))
+        savedPaths.forEach(p => console.log(chalk.dim(p)))
+      } catch (err: any) {
+        spinner.fail(err.message)
+      }
+      return
+    }
+
     if (opts.todo) {
       const spinner = ora('Cargando tickets TO DO...').start()
       try {

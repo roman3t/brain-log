@@ -58,3 +58,61 @@ export async function generateRecap(captures: Capture[]): Promise<{
     return { whatIDid: text, whatILearned: '', tomorrow: '' }
   }
 }
+
+export const FIBONACCI_POINTS = [1, 2, 3, 5, 8, 13, 21] as const
+export type FibonacciPoints = typeof FIBONACCI_POINTS[number]
+
+const STORY_SUMMARY_SYSTEM_PROMPT = `Eres un asistente que ayuda a un equipo de desarrollo a preparar planning poker.
+Dado el título, descripción y comentarios de un ticket de Jira, evalúa su complejidad y responde SOLO en JSON,
+sin markdown ni backticks, con este formato exacto:
+{
+  "summary": "resumen de 2-3 oraciones: qué hay que hacer, qué partes del sistema toca, y riesgos/incertidumbre mencionados en los comentarios",
+  "suggestedPoints": <uno de estos valores exactos: 1, 2, 3, 5, 8, 13, 21 (escala Fibonacci)>,
+  "rationale": "1 oración explicando por qué ese puntaje (alcance, incertidumbre, dependencias)"
+}
+Usa 1-2 para cambios triviales y bien definidos, 3-5 para trabajo estándar de una feature acotada,
+8 para trabajo con varias partes o incertidumbre moderada, 13-21 para historias que probablemente deberían dividirse.`
+
+export interface StoryEstimate {
+  summary: string
+  suggestedPoints: FibonacciPoints
+  rationale: string
+}
+
+export async function summarizeStoryForEstimate(input: {
+  title: string
+  description: string
+  comments: string[]
+}): Promise<StoryEstimate> {
+  const client = getClient()
+
+  const text = [
+    `Título: ${input.title}`,
+    input.description ? `Descripción:\n${input.description}` : '',
+    input.comments.length ? `Comentarios:\n${input.comments.join('\n---\n')}` : '',
+  ].filter(Boolean).join('\n\n')
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 400,
+    system: [
+      {
+        type: 'text',
+        text: STORY_SUMMARY_SYSTEM_PROMPT,
+        cache_control: { type: 'ephemeral' },
+      },
+    ] as any,
+    messages: [{ role: 'user', content: text }],
+  })
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  const jsonText = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+
+  try {
+    const parsed = JSON.parse(jsonText)
+    const points = FIBONACCI_POINTS.includes(parsed.suggestedPoints) ? parsed.suggestedPoints : 5
+    return { summary: parsed.summary || '', suggestedPoints: points, rationale: parsed.rationale || '' }
+  } catch {
+    return { summary: raw.trim(), suggestedPoints: 5, rationale: '' }
+  }
+}
