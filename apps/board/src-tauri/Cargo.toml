@@ -1,0 +1,27 @@
+[package]
+name = "brain-log-board"
+version = "0.1.0"
+description = "Board de escritorio para brain-log"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "rt-multi-thread", "sync", "time", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+keyring = { version = "3", features = ["apple-native"] }
+getrandom = "0.2"
+# `bundled` compila SQLite desde la fuente: sin dependencia del sistema y
+# misma versión en cualquier máquina.
+rusqlite = { version = "0.32", features = ["bundled"] }
+notify = "6"
+notify-debouncer-mini = "0.4"
+
+[features]
+# Tauri usa esto para el bundle de producción.
+custom-protocol = ["tauri/custom-protocol"]
