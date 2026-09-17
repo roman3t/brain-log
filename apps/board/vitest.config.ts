@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['sidecar/src/**/*.test.ts'],
+    include: ['sidecar/src/**/*.test.ts', 'src/**/*.test.ts'],
   },
 })
