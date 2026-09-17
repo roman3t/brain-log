@@ -8,6 +8,7 @@
     "dev:cli": "pnpm --filter brain-log dev",
     "dev:menubar": "pnpm --filter brain-log-menubar dev",
     "dev:shared": "pnpm --filter @brain-log/shared dev",
+    "dev:board": "pnpm --filter @brain-log/shared build && pnpm --filter @brain-log/board dev",
     "build": "pnpm --filter @brain-log/shared build && pnpm --filter brain-log build"
   },
   "pnpm": {
