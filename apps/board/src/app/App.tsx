@@ -6,6 +6,8 @@ import { BoardView } from '../features/board/BoardView'
 import { SyncBar } from '../features/board/SyncBar'
 import { Unmatched } from '../features/todos/Unmatched'
 import { Settings } from '../features/settings/Settings'
+import { DayFilter, type DaySelection } from '../features/activity/DayFilter'
+import { isOnDay, previousBusinessDay, startOfDay } from '../lib/day'
 
 /**
  * Estado de una fuente en la vista.
@@ -37,6 +39,8 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null)
   /** Todos con una escritura en vuelo, por `archivo:línea`. */
   const [pending, setPending] = useState<Set<string>>(new Set())
+  /** Jornada de actividad que se está mirando. */
+  const [day, setDay] = useState<DaySelection>('all')
 
   /**
    * Pinta desde la caché. No toca la red, así que la ventana tiene contenido
@@ -169,17 +173,31 @@ export function App() {
     return map
   }, [vault.data])
 
+  /**
+   * El día hábil anterior se calcula una vez por render de la lista, no por
+   * elemento. Depende sólo de la fecha de hoy.
+   */
+  const previousDay = useMemo(() => previousBusinessDay(new Date()), [])
+
+  /** Actividad de la jornada seleccionada. Con 'all' no se filtra nada. */
+  const visibleActivity = useMemo(() => {
+    const all = git.data ?? []
+    if (day === 'all') return all
+    const target = day === 'today' ? startOfDay(new Date()) : previousDay
+    return all.filter(item => isOnDay(item.updatedAt, target))
+  }, [git.data, day, previousDay])
+
   /** Actividad indexada por clave de issue. */
   const activityByIssue = useMemo(() => {
     const map = new Map<string, Activity[]>()
-    for (const item of git.data ?? []) {
+    for (const item of visibleActivity) {
       if (!item.issueKey) continue
       const list = map.get(item.issueKey)
       if (list) list.push(item)
       else map.set(item.issueKey, [item])
     }
     return map
-  }, [git.data])
+  }, [visibleActivity])
 
   /**
    * Lo que no pudo correlacionarse. Se muestra aparte, nunca se descarta ni se
@@ -189,7 +207,10 @@ export function App() {
     () => (vault.data ?? []).filter(t => !t.issueKey && !t.done),
     [vault.data],
   )
-  const looseActivity = useMemo(() => (git.data ?? []).filter(a => !a.issueKey), [git.data])
+  const looseActivity = useMemo(
+    () => visibleActivity.filter(a => !a.issueKey),
+    [visibleActivity],
+  )
 
   return (
     <div className="app">
@@ -202,6 +223,13 @@ export function App() {
         onSync={() => void sync()}
         onOpenSettings={() => setSettingsOpen(true)}
       />
+      <DayFilter
+        value={day}
+        onChange={setDay}
+        previousDay={previousDay}
+        shown={visibleActivity.length}
+        total={git.data?.length ?? 0}
+      />
       <BoardView
         board={jira.data}
         syncing={jira.syncing}
@@ -209,6 +237,7 @@ export function App() {
         todosByIssue={todosByIssue}
         activityByIssue={activityByIssue}
         activityUnavailable={git.error !== null}
+        dayFiltered={day !== 'all'}
         onToggleTodo={toggleTodo}
         pendingTodos={pending}
       />

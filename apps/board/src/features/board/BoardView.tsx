@@ -8,6 +8,8 @@ interface Props {
   todosByIssue: Map<string, VaultTodo[]>
   activityByIssue: Map<string, Activity[]>
   activityUnavailable: boolean
+  /** Hay un filtro de día activo. */
+  dayFiltered: boolean
   onToggleTodo: (todo: VaultTodo, done: boolean) => void
   pendingTodos: Set<string>
 }
@@ -19,6 +21,7 @@ export function BoardView({
   todosByIssue,
   activityByIssue,
   activityUnavailable,
+  dayFiltered,
   onToggleTodo,
   pendingTodos,
 }: Props) {
@@ -58,6 +61,7 @@ export function BoardView({
                     todos={todosByIssue.get(issue.key) ?? []}
                     activity={activityByIssue.get(issue.key) ?? []}
                     activityUnavailable={activityUnavailable}
+                    dayFiltered={dayFiltered}
                     onToggleTodo={onToggleTodo}
                     pendingTodos={pendingTodos}
                   />

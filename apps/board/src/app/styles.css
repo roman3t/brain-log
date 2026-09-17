@@ -341,6 +341,55 @@ body {
   }
 }
 
+/* ---- filtro de jornada ---- */
+
+.dayfilter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex: 0 0 auto;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segment {
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.segment:last-child {
+  border-right: none;
+}
+
+.segment:hover:not(.segment-on) {
+  background: var(--surface2);
+  color: var(--text);
+}
+
+.segment-on {
+  background: var(--surface2);
+  color: var(--accent);
+}
+
+.dayfilter-count {
+  margin-left: auto;
+}
+
 /* ---- tablero ---- */
 
 .board {
