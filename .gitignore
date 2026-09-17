@@ -4,3 +4,9 @@ dist
 *.env.local
 .DS_Store
 **/.DS_Store
+
+# Rust: artefactos de compilación (varios GB)
+target/
+
+# Tauri: esquemas generados a partir de las capabilities
+apps/board/src-tauri/gen/schemas/
