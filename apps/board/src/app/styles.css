@@ -326,6 +326,13 @@ body {
   cursor: help;
 }
 
+.settings-confirm {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--yellow);
+}
+
 .dot-pulse {
   background: var(--accent);
   animation: pulse 1.2s ease-in-out infinite;
