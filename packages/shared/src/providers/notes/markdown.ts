@@ -52,7 +52,100 @@ export class MarkdownProvider implements NotesProvider {
   }
 
   taskPath(taskId: string): string {
-    return path.join(this.contextPath(), 'tasks', `${taskId}.md`)
+    return path.join(this.contextPath(), 'task-jira', `${taskId}.md`)
+  }
+
+  private taskDonePath(taskId: string): string {
+    return path.join(this.contextPath(), 'task-jira', 'done', `${taskId}.md`)
+  }
+
+  // Lista los IDs de tareas que hay en el backlog (task-jira/ y task-jira/done/)
+  async listTaskIds(): Promise<Array<{ id: string; archived: boolean }>> {
+    const dir = path.join(this.contextPath(), 'task-jira')
+    const result: Array<{ id: string; archived: boolean }> = []
+
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      for (const e of entries) {
+        if (e.isFile() && e.name.endsWith('.md')) result.push({ id: e.name.replace(/\.md$/, ''), archived: false })
+      }
+    } catch { return [] }
+
+    try {
+      const doneEntries = await fs.readdir(path.join(dir, 'done'))
+      for (const f of doneEntries) {
+        if (f.endsWith('.md')) result.push({ id: f.replace(/\.md$/, ''), archived: true })
+      }
+    } catch {}
+
+    return result
+  }
+
+  // Mueve la página a task-jira/done/ si el status es terminal, o la trae de vuelta si dejó de estarlo.
+  // Devuelve el path final, o null si no existía ninguna página para ese taskId.
+  async archiveTaskIfDone(taskId: string, status: string, isDone: boolean): Promise<string | null> {
+    const activePath = this.taskPath(taskId)
+    const donePath = this.taskDonePath(taskId)
+
+    let currentPath: string
+    try {
+      await fs.access(activePath)
+      currentPath = activePath
+    } catch {
+      try {
+        await fs.access(donePath)
+        currentPath = donePath
+      } catch {
+        return null
+      }
+    }
+
+    const original = await fs.readFile(currentPath, 'utf-8')
+    const content = original.replace(/\*\*Status:\*\* .*/, `**Status:** ${status}`)
+
+    const targetPath = isDone ? donePath : activePath
+    if (targetPath !== currentPath) {
+      await fs.mkdir(path.dirname(targetPath), { recursive: true })
+      await fs.writeFile(targetPath, content, 'utf-8')
+      await fs.unlink(currentPath)
+      gitSync(this.vaultPath()).catch(() => {})
+      return targetPath
+    }
+
+    if (content !== original) {
+      await fs.writeFile(currentPath, content, 'utf-8')
+      gitSync(this.vaultPath()).catch(() => {})
+    }
+    return currentPath
+  }
+
+  async saveEstimate(task: TaskPage, data: { points: number; summary: string; rationale?: string }): Promise<string> {
+    await this.saveTaskPage(task)  // crea la página del backlog si todavía no existe
+
+    const filePath = this.taskPath(task.id)
+    let content = await fs.readFile(filePath, 'utf-8')
+
+    const today = new Date().toISOString().split('T')[0]
+    const block = [
+      '## Estimación',
+      '',
+      `**Puntos:** ${data.points} (Fibonacci) — ${today}`,
+      '',
+      data.summary,
+      data.rationale ? `\n_${data.rationale}_` : '',
+    ].filter(l => l !== undefined).join('\n')
+
+    if (content.includes('## Estimación')) {
+      content = content.replace(/## Estimación\n[\s\S]*?(?=\n## |\n---|$)/, `${block}\n`)
+    } else if (content.includes('## Checklist')) {
+      content = content.replace('## Checklist', `${block}\n\n## Checklist`)
+    } else {
+      content = content.endsWith('\n') ? `${content}\n${block}\n` : `${content}\n\n${block}\n`
+    }
+
+    await fs.writeFile(filePath, content, 'utf-8')
+    gitSync(this.vaultPath()).catch(() => {})
+    return filePath
   }
 
   async saveMeetSessionHeader(date: string, time: string): Promise<void> {
