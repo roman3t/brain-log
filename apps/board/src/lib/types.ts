@@ -63,6 +63,33 @@ export interface VaultTodo {
   fileHash: string
 }
 
+/** Ticket del historial, terminado o no. Espejo de HistoryTask en el sidecar. */
+export interface HistoryTask {
+  key: string
+  title: string
+  status: string
+  category: 'todo' | 'in_progress' | 'done'
+  assignee: string | null
+  url: string
+  updatedAt: string
+  /** Cuándo se resolvió. null si sigue abierto. */
+  resolvedAt: string | null
+}
+
+/** Evento de GitLab, uno por contribución del mapa. Espejo de ActivityEvent. */
+export interface ActivityEvent {
+  id: number
+  /** En UTC. Se agrupa por jornada en hora local al mostrarlo. */
+  at: string
+  action: string
+  title: string
+  repo: string
+  url: string
+  /** null significa "no correlacionado", y se muestra como tal. */
+  issueKey: string | null
+  commits: number
+}
+
 /**
  * Clase de error de una fuente. El frontend decide qué mostrar según el tipo,
  * así que es un union cerrado y no un string libre.

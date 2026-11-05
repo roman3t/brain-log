@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { SourceState } from '../../app/App'
 import type { SourceError } from '../../lib/types'
 import { timeAgo } from '../../lib/time'
@@ -12,12 +13,14 @@ interface SourceSlot {
 
 interface Props {
   sources: SourceSlot[]
+  /** Selector de vista, junto al nombre de la app. */
+  nav?: ReactNode
   onSync: () => void
   onOpenSettings: () => void
 }
 
 /** Mensaje por tipo de error. El texto crudo del proveedor va en el `title`. */
-function describe(error: SourceError, source: string): string {
+export function describe(error: SourceError, source: string): string {
   switch (error.kind) {
     case 'auth':
       return `${source} rechazó las credenciales`
@@ -32,13 +35,14 @@ function describe(error: SourceError, source: string): string {
   }
 }
 
-export function SyncBar({ sources, onSync, onOpenSettings }: Props) {
+export function SyncBar({ sources, nav, onSync, onOpenSettings }: Props) {
   const anySyncing = sources.some(s => s.state.syncing)
 
   return (
     <header className="syncbar">
       <div className="syncbar-left">
         <span className="brand">brain-log</span>
+        {nav}
         {sources.map(s => (
           <span className="label" key={s.name}>
             {s.count} {s.unit}

@@ -19,7 +19,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { getPMProvider } from '@brain-log/shared'
 import { listTodos, toggleTodo, type ToggleRequest } from './todos'
-import { listActivity, whoami as gitlabWhoami } from './gitlab'
+import { listActivity, listEvents, whoami as gitlabWhoami } from './gitlab'
+import { listHistoryTasks } from './tasks'
 
 const TOKEN = process.env.BOARD_SIDECAR_TOKEN
 if (!TOKEN) {
@@ -73,6 +74,19 @@ const methods: Record<string, Handler> = {
    */
   async 'activity.list'() {
     return { activity: await listActivity() }
+  },
+
+  /**
+   * Todos los tickets del usuario, también los terminados. El tablero sólo ve
+   * el sprint abierto, así que el historial necesita su propia consulta.
+   */
+  async 'history.tasks'() {
+    return { tasks: await listHistoryTasks() }
+  },
+
+  /** Eventos de GitLab posteriores a `since`, para el mapa de actividad. */
+  async 'history.events'(params) {
+    return listEvents(typeof params.since === 'string' ? params.since : null)
   },
 
   /**

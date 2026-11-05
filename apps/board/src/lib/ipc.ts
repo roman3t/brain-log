@@ -8,8 +8,10 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
   Activity,
+  ActivityEvent,
   Board,
   CredentialStatus,
+  HistoryTask,
   Result,
   SourceError,
   SyncState,
@@ -51,6 +53,15 @@ export const ipc = {
   /** Actividad desde la caché local, con su frescura. */
   getActivity: () => call<{ activity: Activity[]; sync: SyncState }>('get_activity'),
 
+  /** Historial desde la caché: todos los tickets y un año de eventos. */
+  getHistory: () =>
+    call<{
+      tasks: HistoryTask[]
+      tasksSync: SyncState
+      events: ActivityEvent[]
+      eventsSync: SyncState
+    }>('get_history'),
+
   /**
    * Todos del vault. No se cachean: el vault es la fuente de verdad y puede
    * cambiar por fuera, así que siempre se lee del disco.
@@ -77,6 +88,18 @@ export const ipc = {
 
   /** Trae actividad de GitLab, la persiste y la devuelve. */
   syncGitlab: () => call<{ activity: Activity[]; sync: SyncState }>('sync_gitlab'),
+
+  /** Trae todos los tickets del usuario, también los terminados. */
+  syncHistoryTasks: () => call<{ tasks: HistoryTask[]; sync: SyncState }>('sync_history_tasks'),
+
+  /**
+   * Trae los eventos nuevos de GitLab. La primera vez recorre un año entero,
+   * así que puede tardar bastante más que las otras sincronizaciones.
+   */
+  syncHistoryEvents: () => call<{ events: ActivityEvent[]; sync: SyncState }>('sync_history_events'),
+
+  /** Abre un enlace del historial. Rust sólo acepta URLs que vinieron de un proveedor. */
+  openLink: (url: string) => call<null>('open_known_link', { url }),
 
   /** Vacía la caché. Es reconstruible: una sincronización completa la restaura. */
   resetCache: () => call<null>('reset_cache'),

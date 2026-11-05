@@ -42,3 +42,8 @@ export function isOnDay(iso: string, day: Date): boolean {
 export function dayLabel(day: Date): string {
   return day.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' })
 }
+
+/** Con año, para el mapa de actividad: el mismo día del mes aparece dos veces. */
+export function fullDayLabel(day: Date): string {
+  return day.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+}

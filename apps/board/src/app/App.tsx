@@ -7,6 +7,8 @@ import { SyncBar } from '../features/board/SyncBar'
 import { Unmatched } from '../features/todos/Unmatched'
 import { Settings } from '../features/settings/Settings'
 import { DayFilter, type DaySelection } from '../features/activity/DayFilter'
+import { HistoryView } from '../features/history/HistoryView'
+import { useHistory } from '../features/history/useHistory'
 import { isOnDay, previousBusinessDay, startOfDay } from '../lib/day'
 
 /**
@@ -30,7 +32,16 @@ function initial<T>(): SourceState<T> {
   return { data: null, lastSyncedAt: null, error: null, syncing: false }
 }
 
+type View = 'board' | 'history'
+
+const VIEWS: Array<{ id: View; label: string }> = [
+  { id: 'board', label: 'Tablero' },
+  { id: 'history', label: 'Historial' },
+]
+
 export function App() {
+  const [view, setView] = useState<View>('board')
+  const history = useHistory()
   const [jira, setJira] = useState<SourceState<Board>>(initial)
   const [vault, setVault] = useState<SourceState<VaultTodo[]>>(initial)
   const [git, setGit] = useState<SourceState<Activity[]>>(initial)
@@ -47,7 +58,11 @@ export function App() {
    * antes incluso de que exista el proceso del sidecar.
    */
   const loadFromCache = useCallback(async () => {
-    const [board, activity] = await Promise.all([ipc.getBoard(), ipc.getActivity()])
+    const [board, activity] = await Promise.all([
+      ipc.getBoard(),
+      ipc.getActivity(),
+      history.load(),
+    ])
 
     if (board.ok) {
       setJira(p => ({ ...p, data: board.data.board, lastSyncedAt: board.data.sync.lastSyncedAt }))
@@ -59,13 +74,16 @@ export function App() {
         lastSyncedAt: activity.data.sync.lastSyncedAt,
       }))
     }
-  }, [])
+  }, [history.load])
 
   /** Va a la red y actualiza la caché. Cada fuente se asienta por separado. */
   const sync = useCallback(async () => {
     setJira(p => ({ ...p, syncing: true }))
     setVault(p => ({ ...p, syncing: true }))
     setGit(p => ({ ...p, syncing: true }))
+
+    // Corre aparte: su primera vez tarda y no debe frenar al tablero.
+    history.sync()
 
     void ipc.syncJira().then(r =>
       setJira(p =>
@@ -93,7 +111,7 @@ export function App() {
           : { ...p, error: r.error, syncing: false },
       ),
     )
-  }, [])
+  }, [history.sync])
 
   /** Relee sólo los todos. Barato: es leer archivos, no ir a la red. */
   const reloadTodos = useCallback(async () => {
@@ -220,35 +238,60 @@ export function App() {
           { name: 'Vault', state: vault, count: vault.data?.length ?? 0, unit: 'todos' },
           { name: 'GitLab', state: git, count: git.data?.length ?? 0, unit: 'actividad' },
         ]}
+        nav={
+          <div className="segmented">
+            {VIEWS.map(option => (
+              <button
+                key={option.id}
+                className={`segment ${view === option.id ? 'segment-on' : ''}`}
+                onClick={() => setView(option.id)}
+                aria-pressed={view === option.id}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        }
         onSync={() => void sync()}
         onOpenSettings={() => setSettingsOpen(true)}
       />
-      <DayFilter
-        value={day}
-        onChange={setDay}
-        previousDay={previousDay}
-        shown={visibleActivity.length}
-        total={git.data?.length ?? 0}
-      />
-      <BoardView
-        board={jira.data}
-        syncing={jira.syncing}
-        hasError={jira.error !== null}
-        todosByIssue={todosByIssue}
-        activityByIssue={activityByIssue}
-        activityUnavailable={git.error !== null}
-        dayFiltered={day !== 'all'}
-        onToggleTodo={toggleTodo}
-        pendingTodos={pending}
-      />
-      <Unmatched
-        todos={looseTodos}
-        activity={looseActivity}
-        vaultError={vault.error}
-        gitError={git.error}
-        onToggleTodo={toggleTodo}
-        pendingTodos={pending}
-      />
+      {view === 'board' ? (
+        <>
+          <DayFilter
+            value={day}
+            onChange={setDay}
+            previousDay={previousDay}
+            shown={visibleActivity.length}
+            total={git.data?.length ?? 0}
+          />
+          <BoardView
+            board={jira.data}
+            syncing={jira.syncing}
+            hasError={jira.error !== null}
+            todosByIssue={todosByIssue}
+            activityByIssue={activityByIssue}
+            activityUnavailable={git.error !== null}
+            dayFiltered={day !== 'all'}
+            onToggleTodo={toggleTodo}
+            pendingTodos={pending}
+          />
+          <Unmatched
+            todos={looseTodos}
+            activity={looseActivity}
+            vaultError={vault.error}
+            gitError={git.error}
+            onToggleTodo={toggleTodo}
+            pendingTodos={pending}
+          />
+
+        </>
+      ) : (
+        <HistoryView
+          tasks={history.tasks}
+          events={history.events}
+          columns={jira.data?.columns ?? []}
+        />
+      )}
 
       {notice && (
         <div className="notice" role="status">
