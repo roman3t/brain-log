@@ -17,6 +17,8 @@ interface Props {
   activity: Activity[]
   /** La fuente de actividad falló: no se puede afirmar que no haya actividad. */
   activityUnavailable: boolean
+  /** Hay un filtro de día activo: la ausencia es de esa jornada, no absoluta. */
+  dayFiltered: boolean
   onToggleTodo: (todo: VaultTodo, done: boolean) => void
   pendingTodos: Set<string>
 }
@@ -26,6 +28,7 @@ export function IssueCard({
   todos,
   activity,
   activityUnavailable,
+  dayFiltered,
   onToggleTodo,
   pendingTodos,
 }: Props) {
@@ -85,11 +88,16 @@ export function IssueCard({
       )}
 
       <div className="card-foot">
-        {/* Distinción deliberada: "no hay actividad" sólo se afirma cuando la
-            fuente respondió. Si GitLab falló, se dice que no se sabe. */}
+        {/* Tres estados distintos que sería fácil confundir en uno: la fuente
+            falló y no se sabe; hay filtro y no hubo nada ese día; o realmente
+            no hay actividad. Sólo el último justifica afirmar "sin actividad". */}
         {activity.length === 0 && (
           <span className="card-noactivity">
-            {activityUnavailable ? 'actividad no disponible' : 'sin actividad'}
+            {activityUnavailable
+              ? 'actividad no disponible'
+              : dayFiltered
+                ? 'sin actividad ese día'
+                : 'sin actividad'}
           </span>
         )}
       </div>

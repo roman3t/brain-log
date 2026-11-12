@@ -48,6 +48,7 @@ La app lee la misma configuración que el CLI, en `~/.brain-log/.env`:
 | `GITLAB_URL` | instancia de GitLab | `.env` (no es secreto) |
 | `GITLAB_TOKEN` | token | **keychain**, con fallback a `.env` |
 | `BOARD_COLUMNS` | columnas del tablero | `.env`, opcional |
+| `BOARD_HISTORY_JQL` | tickets del Historial | `.env`, opcional |
 
 Los tokens en el keychain ganan sobre los del `.env`: `dotenv` es *first-wins*,
 así que lo que Rust inyecta tiene precedencia. Eso permite migrar gradualmente
@@ -108,7 +109,7 @@ en un estado equivalente, y hay una prueba que lo verifica
 (`borrar_y_resincronizar_produce_el_mismo_estado`). Nada originado por el
 usuario vive ahí.
 
-Las lecturas (`get_board`, `get_activity`) sólo tocan la caché y responden al
+Las lecturas (`get_board`, `get_activity`, `get_history`) sólo tocan la caché y responden al
 instante; las sincronizaciones (`sync_jira`, `sync_gitlab`) van a la red y
 después persisten. La ventana pinta primero desde la caché y sincroniza después,
 nunca al revés.
@@ -125,6 +126,36 @@ Para inspeccionarla:
 sqlite3 ~/Library/Application\ Support/com.brainlog.board/cache.sqlite \
   "SELECT source, last_synced_at, last_error FROM sync_state;"
 ```
+
+## Historial
+
+La vista **Historial** responde dos preguntas: qué hice cada día y dónde está cada
+ticket. Se pinta desde la caché y sincroniza junto con el resto de las fuentes,
+pero por separado: su primera carga no frena al tablero.
+
+- **Tickets:** el tablero sólo ve el sprint abierto, así que aquí hay otra consulta
+  a Jira. Por defecto `project = GCD AND assignee was currentUser() ORDER BY updated
+  DESC`, que incluye los tickets que ya pasaron a otra persona. Se reemplazan
+  completos en cada sincronización.
+- **Actividad:** cada casilla del mapa cuenta eventos de GitLab por día **local**.
+  Los `deleted` no cuentan: borrar una rama, casi siempre automático tras un merge,
+  no es trabajo nuevo.
+- **Correlación:** la misma que en el tablero. Un evento sin clave reconocible,
+  como un merge de `dev` a `qa`, aparece como "Sin ticket".
+
+Los eventos son la única tabla que se **fusiona** en vez de reemplazarse. La primera
+sincronización recorre un año entero (unas 50 páginas, cerca de un minuto, con su
+propio límite de 5 minutos); después sólo se piden los días nuevos con un solape de
+2 días. Sigue siendo reconstruible: lo anterior a la ventana de 372 días se borra, así
+que acumular y resincronizar desde cero terminan en las mismas filas. Si falla una
+página no se guarda nada, porque un lote parcial dejaría un hueco que ya no se
+volvería a pedir.
+
+Cambiar o quitar el token de GitLab borra los eventos: al fusionarse, los de la
+cuenta anterior no se irían nunca por su cuenta.
+
+Los enlaces se abren con `open_known_link`, que sólo acepta URLs que ya están en la
+caché. Así el webview no puede pedir que se abra un destino arbitrario.
 
 ## Todos: lectura, escritura y observación
 

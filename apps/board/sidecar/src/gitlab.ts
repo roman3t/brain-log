@@ -41,7 +41,7 @@ const WINDOW_DAYS = Number(process.env.BOARD_ACTIVITY_DAYS || 14)
  * de GitLab no lo refleja. Aun así el sidecar recorta el mensaje antes de
  * devolverlo al frontend.
  */
-async function get(path: string, attempt = 0): Promise<unknown> {
+async function getPage(path: string, attempt = 0): Promise<{ data: unknown; nextPage: number | null }> {
   const res = await fetch(`${baseUrl()}/api/v4${path}`, {
     headers: { 'PRIVATE-TOKEN': token() },
   })
@@ -54,7 +54,7 @@ async function get(path: string, attempt = 0): Promise<unknown> {
       ? retryAfter * 1000
       : 2 ** attempt * 1000
     await new Promise(resolve => setTimeout(resolve, delayMs))
-    return get(path, attempt + 1)
+    return getPage(path, attempt + 1)
   }
 
   if (res.status === 401 || res.status === 403) {
@@ -63,7 +63,12 @@ async function get(path: string, attempt = 0): Promise<unknown> {
   if (!res.ok) {
     throw new Error(`GitLab ${res.status}: ${(await res.text()).slice(0, 200)}`)
   }
-  return res.json()
+  const next = Number(res.headers.get('x-next-page'))
+  return { data: await res.json(), nextPage: Number.isInteger(next) && next > 0 ? next : null }
+}
+
+async function get(path: string): Promise<unknown> {
+  return (await getPage(path)).data
 }
 
 /**
@@ -205,4 +210,153 @@ export async function listActivity(): Promise<Activity[]> {
   // Más reciente primero, que es como se lee una jornada de trabajo.
   activities.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   return activities
+}
+
+// --- Historial: un año de eventos para el mapa de actividad ----------------
+
+/**
+ * Evento de actividad, uno por cada contribución del mapa.
+ * El `at` queda en UTC tal como lo da GitLab: agrupar por jornada le toca al
+ * frontend, que es quien conoce el huso del usuario.
+ */
+export interface ActivityEvent {
+  id: number
+  at: string
+  /** `action_name` de GitLab: pushed to, pushed new, opened, accepted... */
+  action: string
+  title: string
+  repo: string
+  url: string
+  /** null significa "no correlacionado", igual que en `Activity`. */
+  issueKey: string | null
+  commits: number
+}
+
+export interface GitLabRawEvent {
+  id: number
+  created_at: string
+  action_name: string
+  project_id?: number | null
+  target_iid?: number | null
+  target_id?: number | null
+  target_type?: string | null
+  target_title?: string | null
+  note?: { noteable_type?: string; noteable_iid?: number } | null
+  push_data?: {
+    ref?: string | null
+    commit_title?: string | null
+    commit_to?: string | null
+    commit_count?: number | null
+  } | null
+}
+
+/** Días que cubre el mapa: 53 semanas, con margen para que ninguna quede coja. */
+const CALENDAR_DAYS = 372
+
+/** Solape al sincronizar, por si un evento llegó tarde o el huso corre la fecha. */
+const OVERLAP_DAYS = 2
+
+const dayOf = (date: Date) => date.toISOString().slice(0, 10)
+const daysBefore = (date: Date, days: number) => new Date(date.getTime() - days * 86_400_000)
+
+/**
+ * Qué pedir a GitLab, dado el evento más reciente que ya está en caché.
+ *
+ * `after` es exclusivo en GitLab, así que se pide un día antes del inicio de la
+ * ventana. `windowStart` le dice a la caché qué ya puede olvidar: con ese límite
+ * fijo, vaciarla y resincronizar da el mismo resultado que ir acumulando.
+ */
+export function eventsWindow(since: string | null, now: Date = new Date()) {
+  const start = daysBefore(now, CALENDAR_DAYS)
+  const floor = dayOf(daysBefore(start, 1))
+  const parsed = since ? new Date(since) : null
+  const fromCache =
+    parsed && !Number.isNaN(parsed.getTime()) ? dayOf(daysBefore(parsed, OVERLAP_DAYS)) : floor
+  return { after: fromCache > floor ? fromCache : floor, windowStart: start.toISOString() }
+}
+
+const NOTE_TYPES = new Set(['Note', 'DiffNote', 'DiscussionNote'])
+
+function eventUrl(raw: GitLabRawEvent, repo: string, base: string): string {
+  // Sin ruta legible no hay enlace: mejor nada que una URL inventada.
+  if (!repo || repo.startsWith('proyecto ')) return ''
+  const root = `${base}/${repo}/-`
+  const push = raw.push_data
+  if (push?.commit_to) return `${root}/commit/${push.commit_to}`
+  if (push?.ref) return `${root}/tree/${encodeURIComponent(push.ref)}`
+  if (raw.target_type === 'MergeRequest' && raw.target_iid) {
+    return `${root}/merge_requests/${raw.target_iid}`
+  }
+  if (
+    raw.target_type &&
+    NOTE_TYPES.has(raw.target_type) &&
+    raw.note?.noteable_type === 'MergeRequest' &&
+    raw.note.noteable_iid
+  ) {
+    return `${root}/merge_requests/${raw.note.noteable_iid}#note_${raw.target_id}`
+  }
+  return ''
+}
+
+/**
+ * Normaliza un evento, o devuelve null si no cuenta como trabajo.
+ *
+ * Se descarta `deleted`: borrar una rama, casi siempre automático tras un merge,
+ * inflaría el mapa en días en que no se hizo nada nuevo.
+ */
+export function normalizeEvent(
+  raw: GitLabRawEvent,
+  repo: string,
+  base: string,
+  pattern: RegExp = issuePattern(),
+): ActivityEvent | null {
+  if (raw.action_name === 'deleted') return null
+
+  const push = raw.push_data
+  // Misma jerarquía que en `listActivity`: la rama manda sobre el texto libre.
+  const issueKey = push?.ref
+    ? correlate(push.ref, [push.commit_title], pattern).issueKey
+    : extractIssueKey([raw.target_title], pattern)
+
+  return {
+    id: raw.id,
+    at: raw.created_at,
+    action: raw.action_name,
+    title: push?.commit_title || push?.ref || raw.target_title || raw.action_name,
+    repo,
+    url: eventUrl(raw, repo, base),
+    issueKey,
+    commits: push?.commit_count ?? 0,
+  }
+}
+
+/**
+ * Eventos del usuario desde `since`. Si una página falla se lanza el error en
+ * vez de devolver lo que haya: guardar un lote parcial dejaría un hueco que la
+ * sincronización incremental ya no volvería a pedir.
+ */
+export async function listEvents(since: string | null) {
+  if (!token()) throw new Error('GitLab 401: GITLAB_TOKEN no configurado')
+
+  const { after, windowStart } = eventsWindow(since)
+  const base = baseUrl().replace(/\/+$/, '')
+  const pattern = issuePattern()
+  const resolveProject = projectResolver()
+  const events: ActivityEvent[] = []
+
+  let page: number | null = 1
+  while (page !== null) {
+    const result: { data: unknown; nextPage: number | null } = await getPage(
+      `/events?after=${after}&per_page=100&page=${page}`,
+    )
+    for (const raw of result.data as GitLabRawEvent[]) {
+      const repo = raw.project_id ? await resolveProject(raw.project_id) : ''
+      const event = normalizeEvent(raw, repo, base, pattern)
+      if (event) events.push(event)
+    }
+    // Una cabecera que no avanza cortaría aquí en vez de dar vueltas sin fin.
+    page = result.nextPage !== null && result.nextPage > page ? result.nextPage : null
+  }
+
+  return { events, windowStart }
 }

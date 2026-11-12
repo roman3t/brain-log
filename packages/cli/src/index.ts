@@ -7,6 +7,8 @@ import path from 'path'
 import os from 'os'
 import { execSync } from 'child_process'
 import inquirer from 'inquirer'
+import { registerWorkCommands } from './work'
+import { registerRepoCommands } from './repo'
 
 function notify(title: string, message: string, subtitle?: string) {
   try {
@@ -72,6 +74,9 @@ program
   .name('brain')
   .description('Tu second brain personal — captura, procesa, recuerda')
   .version('1.0.0')
+
+registerWorkCommands(program)
+registerRepoCommands(program)
 
 // ── Capture helper ──────────────────────────────────────────────
 async function capture(type: 'note' | 'todo' | 'vibe' | 'learn', text: string, taskOverride?: string) {

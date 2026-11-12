@@ -9,6 +9,7 @@ mod watcher;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::{Manager, State};
 use tokio::sync::Mutex;
@@ -29,6 +30,14 @@ struct AppState {
     node_bin: String,
     entry: PathBuf,
 }
+
+/// Fuentes del historial en `sync_state`. Son distintas de `jira` y `gitlab`
+/// porque cada consulta falla y envejece por su cuenta.
+const SOURCE_HISTORY_TASKS: &str = "jira_history";
+const SOURCE_HISTORY_EVENTS: &str = "gitlab_events";
+
+/// Un año de eventos son decenas de páginas: no cabe en el minuto de `call`.
+const HISTORY_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Marca de tiempo en milisegundos.
 fn now_ms() -> i64 {
@@ -259,6 +268,112 @@ async fn sync_gitlab(state: State<'_, AppState>) -> Result<serde_json::Value, So
     }
 }
 
+/// Historial desde la caché, con la frescura de cada fuente. No toca la red.
+#[tauri::command]
+async fn get_history(state: State<'_, AppState>) -> Result<serde_json::Value, SourceError> {
+    let cache = state.cache.lock().await;
+    Ok(serde_json::json!({
+        "tasks": cache.history_tasks()?,
+        "tasksSync": cache.sync_state(SOURCE_HISTORY_TASKS)?,
+        "events": cache.events()?,
+        "eventsSync": cache.sync_state(SOURCE_HISTORY_EVENTS)?,
+    }))
+}
+
+/// Trae todos los tickets del usuario y reemplaza el historial en caché.
+#[tauri::command]
+async fn sync_history_tasks(state: State<'_, AppState>) -> Result<serde_json::Value, SourceError> {
+    let fetched = state
+        .sidecar()
+        .await?
+        .call_with_timeout("history.tasks", serde_json::json!({}), HISTORY_TIMEOUT)
+        .await;
+
+    match fetched {
+        Ok(payload) => {
+            let tasks: Vec<cache::CachedHistoryTask> = payload
+                .get("tasks")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|e| SourceError::new("unknown", format!("historial ilegible del sidecar: {e}")))?
+                .unwrap_or_default();
+
+            let mut cache = state.cache.lock().await;
+            cache.replace_history_tasks(&tasks)?;
+            cache.mark_synced(SOURCE_HISTORY_TASKS, now_ms())?;
+            Ok(serde_json::json!({
+                "tasks": cache.history_tasks()?,
+                "sync": cache.sync_state(SOURCE_HISTORY_TASKS)?,
+            }))
+        }
+        Err(err) => {
+            state.cache.lock().await.mark_error(SOURCE_HISTORY_TASKS, &err.message)?;
+            Err(err)
+        }
+    }
+}
+
+/// Trae los eventos nuevos de GitLab y los incorpora a la caché.
+///
+/// La primera vez recorre un año entero. El candado de la caché no se toma
+/// hasta tener la respuesta, para no bloquear al resto de la ventana mientras.
+#[tauri::command]
+async fn sync_history_events(state: State<'_, AppState>) -> Result<serde_json::Value, SourceError> {
+    let since = state.cache.lock().await.latest_event_at()?;
+    let fetched = state
+        .sidecar()
+        .await?
+        .call_with_timeout("history.events", serde_json::json!({ "since": since }), HISTORY_TIMEOUT)
+        .await;
+
+    match fetched {
+        Ok(payload) => {
+            let events: Vec<cache::CachedEvent> = payload
+                .get("events")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|e| SourceError::new("unknown", format!("eventos ilegibles del sidecar: {e}")))?
+                .unwrap_or_default();
+            let window_start = payload.get("windowStart").and_then(|w| w.as_str()).ok_or_else(|| {
+                SourceError::new("unknown", "el sidecar no indicó la ventana de eventos")
+            })?;
+
+            let mut cache = state.cache.lock().await;
+            cache.merge_events(&events, window_start)?;
+            cache.mark_synced(SOURCE_HISTORY_EVENTS, now_ms())?;
+            Ok(serde_json::json!({
+                "events": cache.events()?,
+                "sync": cache.sync_state(SOURCE_HISTORY_EVENTS)?,
+            }))
+        }
+        Err(err) => {
+            state.cache.lock().await.mark_error(SOURCE_HISTORY_EVENTS, &err.message)?;
+            Err(err)
+        }
+    }
+}
+
+/// Abre en el navegador un ticket o evento del historial.
+///
+/// Sólo acepta URLs que ya están en la caché, es decir, que vinieron de Jira o
+/// de GitLab: así el webview no puede pedir que se abra un destino arbitrario.
+#[tauri::command]
+async fn open_known_link(state: State<'_, AppState>, url: String) -> Result<(), SourceError> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err(SourceError::new("not_found", "el enlace no es http(s)"));
+    }
+    if !state.cache.lock().await.knows_url(&url)? {
+        return Err(SourceError::new("not_found", "enlace desconocido"));
+    }
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| SourceError::new("unknown", format!("no se pudo abrir el navegador: {e}")))
+}
+
 /// Vacía la caché. Es desechable por diseño: tras esto una sincronización
 /// completa restaura el mismo estado.
 #[tauri::command]
@@ -323,18 +438,26 @@ async fn set_credential(
     source: String,
     token: String,
 ) -> Result<(), SourceError> {
+    let is_gitlab = source == "gitlab";
     tokio::task::spawn_blocking(move || credentials::set(&source, &token))
         .await
         .map_err(|e| SourceError::new("unknown", format!("fallo escribiendo en el keychain: {e}")))??;
+    if is_gitlab {
+        state.cache.lock().await.clear_events()?;
+    }
     state.reset_sidecar().await;
     Ok(())
 }
 
 #[tauri::command]
 async fn clear_credential(state: State<'_, AppState>, source: String) -> Result<(), SourceError> {
+    let is_gitlab = source == "gitlab";
     tokio::task::spawn_blocking(move || credentials::clear(&source))
         .await
         .map_err(|e| SourceError::new("unknown", format!("fallo borrando del keychain: {e}")))??;
+    if is_gitlab {
+        state.cache.lock().await.clear_events()?;
+    }
     state.reset_sidecar().await;
     Ok(())
 }
@@ -389,6 +512,10 @@ fn main() {
             get_activity,
             sync_jira,
             sync_gitlab,
+            get_history,
+            sync_history_tasks,
+            sync_history_events,
+            open_known_link,
             reset_cache,
             health,
             credential_status,

@@ -62,6 +62,37 @@ pub struct SyncState {
     pub last_error: Option<String>,
 }
 
+/// Ticket del historial. A diferencia de `CachedIssue` incluye los terminados y
+/// las fechas, que el tablero no necesita.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedHistoryTask {
+    pub key: String,
+    pub title: String,
+    pub status: String,
+    pub category: String,
+    pub assignee: Option<String>,
+    pub url: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
+    #[serde(rename = "resolvedAt")]
+    pub resolved_at: Option<String>,
+}
+
+/// Evento de GitLab para el mapa de actividad.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedEvent {
+    pub id: i64,
+    pub at: String,
+    pub action: String,
+    pub title: String,
+    pub repo: String,
+    pub url: String,
+    /// Nullable sin excepciones: un nulo significa "no correlacionado".
+    #[serde(rename = "issueKey")]
+    pub issue_key: Option<String>,
+    pub commits: i64,
+}
+
 pub struct Cache {
     conn: Connection,
 }
@@ -146,6 +177,29 @@ impl Cache {
                     last_error     TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS history_tasks (
+                    key         TEXT PRIMARY KEY,
+                    title       TEXT NOT NULL,
+                    status      TEXT NOT NULL,
+                    category    TEXT NOT NULL,
+                    assignee    TEXT,
+                    url         TEXT NOT NULL DEFAULT '',
+                    updated_at  TEXT NOT NULL DEFAULT '',
+                    resolved_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS events (
+                    id        INTEGER PRIMARY KEY,
+                    at        TEXT NOT NULL,
+                    action    TEXT NOT NULL,
+                    title     TEXT NOT NULL,
+                    repo      TEXT NOT NULL DEFAULT '',
+                    url       TEXT NOT NULL DEFAULT '',
+                    issue_key TEXT,
+                    commits   INTEGER NOT NULL DEFAULT 0
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_events_at      ON events(at);
                 CREATE INDEX IF NOT EXISTS idx_branches_issue ON branches(issue_key);
                 CREATE INDEX IF NOT EXISTS idx_prs_issue      ON pull_requests(issue_key);
                 CREATE INDEX IF NOT EXISTS idx_commits_issue  ON commits(issue_key);
@@ -310,6 +364,141 @@ impl Cache {
         Ok(out)
     }
 
+    // ---- historial -------------------------------------------------------
+
+    /// Reemplaza el historial de tickets, igual que `replace_issues`: un ticket
+    /// que deja de coincidir con la consulta no debe quedarse aquí para siempre.
+    pub fn replace_history_tasks(&mut self, tasks: &[CachedHistoryTask]) -> Result<(), SourceError> {
+        let tx = self.conn.transaction().map_err(db_err("transacción"))?;
+        tx.execute("DELETE FROM history_tasks", []).map_err(db_err("vaciando historial"))?;
+        {
+            let mut stmt = tx
+                .prepare(
+                    "INSERT INTO history_tasks
+                     (key, title, status, category, assignee, url, updated_at, resolved_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                )
+                .map_err(db_err("preparando historial"))?;
+            for t in tasks {
+                stmt.execute(params![
+                    t.key, t.title, t.status, t.category, t.assignee, t.url, t.updated_at, t.resolved_at
+                ])
+                .map_err(db_err("guardando historial"))?;
+            }
+        }
+        tx.commit().map_err(db_err("commit del historial"))
+    }
+
+    pub fn history_tasks(&self) -> Result<Vec<CachedHistoryTask>, SourceError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT key, title, status, category, assignee, url, updated_at, resolved_at
+                 FROM history_tasks ORDER BY updated_at DESC",
+            )
+            .map_err(db_err("leyendo historial"))?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(CachedHistoryTask {
+                    key: r.get(0)?,
+                    title: r.get(1)?,
+                    status: r.get(2)?,
+                    category: r.get(3)?,
+                    assignee: r.get(4)?,
+                    url: r.get(5)?,
+                    updated_at: r.get(6)?,
+                    resolved_at: r.get(7)?,
+                })
+            })
+            .map_err(db_err("leyendo historial"))?;
+        rows.collect::<Result<_, _>>().map_err(db_err("leyendo historial"))
+    }
+
+    /// Incorpora eventos y olvida los anteriores a `window_start`.
+    ///
+    /// Es la única tabla que se fusiona en vez de reemplazarse: traer un año
+    /// entero son decenas de páginas en cada sincronización, y un evento de
+    /// GitLab no cambia una vez creado. El límite de la ventana es lo que
+    /// mantiene la caché reconstruible: acumular y resincronizar desde cero
+    /// terminan en las mismas filas. Las fechas son UTC con `Z`, así que se
+    /// comparan bien como texto.
+    pub fn merge_events(&mut self, events: &[CachedEvent], window_start: &str) -> Result<(), SourceError> {
+        let tx = self.conn.transaction().map_err(db_err("transacción"))?;
+        {
+            let mut stmt = tx
+                .prepare(
+                    "INSERT OR REPLACE INTO events (id, at, action, title, repo, url, issue_key, commits)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                )
+                .map_err(db_err("preparando eventos"))?;
+            for e in events {
+                stmt.execute(params![
+                    e.id, e.at, e.action, e.title, e.repo, e.url, e.issue_key, e.commits
+                ])
+                .map_err(db_err("guardando eventos"))?;
+            }
+        }
+        tx.execute("DELETE FROM events WHERE at < ?1", params![window_start])
+            .map_err(db_err("podando eventos"))?;
+        tx.commit().map_err(db_err("commit de eventos"))
+    }
+
+    pub fn events(&self) -> Result<Vec<CachedEvent>, SourceError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, at, action, title, repo, url, issue_key, commits
+                 FROM events ORDER BY at DESC",
+            )
+            .map_err(db_err("leyendo eventos"))?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(CachedEvent {
+                    id: r.get(0)?,
+                    at: r.get(1)?,
+                    action: r.get(2)?,
+                    title: r.get(3)?,
+                    repo: r.get(4)?,
+                    url: r.get(5)?,
+                    issue_key: r.get(6)?,
+                    commits: r.get(7)?,
+                })
+            })
+            .map_err(db_err("leyendo eventos"))?;
+        rows.collect::<Result<_, _>>().map_err(db_err("leyendo eventos"))
+    }
+
+    /// Fecha del evento más reciente: desde ahí sigue la sincronización.
+    pub fn latest_event_at(&self) -> Result<Option<String>, SourceError> {
+        self.conn
+            .query_row("SELECT MAX(at) FROM events", [], |r| r.get(0))
+            .map_err(db_err("leyendo último evento"))
+    }
+
+    /// Olvida los eventos, que son de la cuenta anterior al cambiar el token.
+    /// Como se fusionan, una sincronización normal no los sustituiría nunca.
+    pub fn clear_events(&self) -> Result<(), SourceError> {
+        self.conn
+            .execute("DELETE FROM events", [])
+            .map_err(db_err("vaciando eventos"))?;
+        self.conn
+            .execute("DELETE FROM sync_state WHERE source = 'gitlab_events'", [])
+            .map(|_| ())
+            .map_err(db_err("vaciando eventos"))
+    }
+
+    /// ¿La URL salió de un proveedor? Abrir enlaces se limita a estas.
+    pub fn knows_url(&self, url: &str) -> Result<bool, SourceError> {
+        self.conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM history_tasks WHERE url = ?1)
+                     OR EXISTS (SELECT 1 FROM events WHERE url = ?1)",
+                params![url],
+                |r| r.get(0),
+            )
+            .map_err(db_err("comprobando enlace"))
+    }
+
     // ---- estado de sincronización ---------------------------------------
 
     pub fn mark_synced(&self, source: &str, at: i64) -> Result<(), SourceError> {
@@ -356,7 +545,15 @@ impl Cache {
     /// pero sin cerrar la conexión ni arriesgarse a dejarlo a medias.
     pub fn reset(&mut self) -> Result<(), SourceError> {
         let tx = self.conn.transaction().map_err(db_err("transacción"))?;
-        for table in ["issues", "branches", "pull_requests", "commits", "sync_state"] {
+        for table in [
+            "issues",
+            "branches",
+            "pull_requests",
+            "commits",
+            "history_tasks",
+            "events",
+            "sync_state",
+        ] {
             tx.execute(&format!("DELETE FROM {table}"), [])
                 .map_err(db_err("vaciando caché"))?;
         }
@@ -494,5 +691,111 @@ mod tests {
         c.replace_activity(&[activity("commit", Some("GCD-1"), "u1")]).unwrap();
         c.mark_synced("jira", 100).unwrap();
         assert_eq!((c.issues().unwrap().len(), c.activity().unwrap().len()), antes);
+    }
+
+    fn task(key: &str, resolved: Option<&str>) -> CachedHistoryTask {
+        CachedHistoryTask {
+            key: key.into(),
+            title: format!("titulo de {key}"),
+            status: if resolved.is_some() { "Done".into() } else { "DOING".into() },
+            category: if resolved.is_some() { "done".into() } else { "in_progress".into() },
+            assignee: None,
+            url: format!("https://j/browse/{key}"),
+            updated_at: "2026-11-01T10:00:00.000-0600".into(),
+            resolved_at: resolved.map(String::from),
+        }
+    }
+
+    fn event(id: i64, at: &str) -> CachedEvent {
+        CachedEvent {
+            id,
+            at: at.into(),
+            action: "pushed to".into(),
+            title: format!("evento {id}"),
+            repo: "g/p".into(),
+            url: format!("https://g/p/-/commit/{id}"),
+            issue_key: None,
+            commits: 1,
+        }
+    }
+
+    const INICIO: &str = "2025-11-01T00:00:00.000Z";
+
+    #[test]
+    fn el_historial_de_tickets_se_reemplaza() {
+        let mut c = Cache::in_memory().unwrap();
+        c.replace_history_tasks(&[task("GCD-1", None), task("GCD-2", Some("2026-10-30"))]).unwrap();
+        c.replace_history_tasks(&[task("GCD-2", Some("2026-10-30"))]).unwrap();
+        let tasks = c.history_tasks().unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].resolved_at.as_deref(), Some("2026-10-30"));
+    }
+
+    #[test]
+    fn fusionar_el_solape_no_duplica_eventos() {
+        let mut c = Cache::in_memory().unwrap();
+        c.merge_events(&[event(1, "2026-11-01T00:00:00.000Z")], INICIO).unwrap();
+        c.merge_events(
+            &[event(1, "2026-11-01T00:00:00.000Z"), event(2, "2026-11-02T00:00:00.000Z")],
+            INICIO,
+        )
+        .unwrap();
+        assert_eq!(c.events().unwrap().len(), 2);
+        assert_eq!(c.latest_event_at().unwrap().as_deref(), Some("2026-11-02T00:00:00.000Z"));
+    }
+
+    #[test]
+    fn la_ventana_olvida_lo_antiguo_y_da_igual_que_resincronizar() {
+        // Acumular a lo largo del tiempo...
+        let mut acumulada = Cache::in_memory().unwrap();
+        acumulada.merge_events(&[event(1, "2025-06-01T00:00:00.000Z")], "2025-01-01T00:00:00.000Z").unwrap();
+        acumulada.merge_events(&[event(2, "2026-11-02T00:00:00.000Z")], INICIO).unwrap();
+        // ...debe terminar igual que empezar de cero con la misma ventana.
+        let mut nueva = Cache::in_memory().unwrap();
+        nueva.merge_events(&[event(2, "2026-11-02T00:00:00.000Z")], INICIO).unwrap();
+
+        let ids = |c: &Cache| c.events().unwrap().iter().map(|e| e.id).collect::<Vec<_>>();
+        assert_eq!(ids(&acumulada), ids(&nueva));
+    }
+
+    #[test]
+    fn sin_eventos_no_hay_punto_de_partida() {
+        let c = Cache::in_memory().unwrap();
+        assert!(c.latest_event_at().unwrap().is_none());
+    }
+
+    #[test]
+    fn cambiar_de_cuenta_olvida_los_eventos_y_su_frescura() {
+        let mut c = Cache::in_memory().unwrap();
+        c.merge_events(&[event(1, "2026-11-01T00:00:00.000Z")], INICIO).unwrap();
+        c.mark_synced("gitlab_events", 100).unwrap();
+        c.mark_synced("gitlab", 100).unwrap();
+
+        c.clear_events().unwrap();
+
+        assert!(c.events().unwrap().is_empty());
+        assert!(c.sync_state("gitlab_events").unwrap().last_synced_at.is_none());
+        assert_eq!(c.sync_state("gitlab").unwrap().last_synced_at, Some(100));
+    }
+
+    #[test]
+    fn sólo_se_conocen_las_urls_que_vinieron_de_un_proveedor() {
+        let mut c = Cache::in_memory().unwrap();
+        c.replace_history_tasks(&[task("GCD-1", None)]).unwrap();
+        c.merge_events(&[event(1, "2026-11-01T00:00:00.000Z")], INICIO).unwrap();
+
+        assert!(c.knows_url("https://j/browse/GCD-1").unwrap());
+        assert!(c.knows_url("https://g/p/-/commit/1").unwrap());
+        assert!(!c.knows_url("https://sitio-cualquiera.example/").unwrap());
+    }
+
+    #[test]
+    fn vaciar_incluye_el_historial() {
+        let mut c = Cache::in_memory().unwrap();
+        c.replace_history_tasks(&[task("GCD-1", None)]).unwrap();
+        c.merge_events(&[event(1, "2026-11-01T00:00:00.000Z")], INICIO).unwrap();
+        c.reset().unwrap();
+        assert!(c.history_tasks().unwrap().is_empty());
+        assert!(c.events().unwrap().is_empty());
     }
 }

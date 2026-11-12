@@ -3,6 +3,7 @@ import path from 'path'
 import type { NotesProvider, Capture, Recap } from './types'
 import { config } from '../../config'
 import { getContext } from '../../state'
+import { getWorkSession } from '../../work-store'
 import { gitSync } from './git-sync'
 
 export interface TaskPage {
@@ -26,6 +27,8 @@ const ICONS: Record<string, string> = {
 export class MarkdownProvider implements NotesProvider {
   readonly name = 'markdown'
 
+  constructor(private readonly contextOverride?: string) {}
+
   private vaultPath(): string {
     if (!config.markdown.vaultPath) throw new Error('MARKDOWN_VAULT_PATH no configurado en ~/.brain-log/.env')
     return config.markdown.vaultPath
@@ -34,7 +37,7 @@ export class MarkdownProvider implements NotesProvider {
   // Resolves context subfolder if VAULT_CONTEXTS is configured, falls back to root
   private contextPath(): string {
     const { contexts, defaultContext } = config.markdown
-    const alias = getContext() || defaultContext
+    const alias = this.contextOverride ?? getWorkSession()?.context ?? (getContext() || defaultContext)
     if (!alias || Object.keys(contexts).length === 0) return this.vaultPath()
     const relative = contexts[alias]
     if (!relative) return this.vaultPath()
@@ -176,17 +179,17 @@ export class MarkdownProvider implements NotesProvider {
     try { content = await fs.readFile(filePath, 'utf-8') } catch {}
 
     const heading = `## ${date}`
-    if (!content.includes(heading)) {
-      content = content ? `${content}\n${heading}\n` : `${heading}\n`
-    }
+    const header = content.includes(heading) ? '' : content ? `\n${heading}\n` : `${heading}\n`
 
     const icon = ICONS[capture.type] || '•'
     const tag = `#${capture.type}`
     const taskLink = capture.taskId ? ` [[${capture.taskId}]]` : ''
     const line = `- ${icon} ${capture.raw} ${tag}${taskLink}`
 
-    content = content.endsWith('\n') ? `${content}${line}\n` : `${content}\n${line}\n`
-    await fs.writeFile(filePath, content, 'utf-8')
+    // Append one entry instead of rewriting a stale journal snapshot when
+    // several worktrees capture notes concurrently.
+    const separator = !header && content && !content.endsWith('\n') ? '\n' : ''
+    await fs.appendFile(filePath, `${header}${separator}${line}\n`, 'utf-8')
 
     return filePath
   }

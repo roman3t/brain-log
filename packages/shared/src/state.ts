@@ -1,8 +1,9 @@
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { getWorkSession } from './work-store'
 
-const STATE_PATH = path.join(os.homedir(), '.brain-log', 'state.json')
+function statePath(): string { return path.join(os.homedir(), '.brain-log', 'state.json') }
 
 export interface ActiveTask {
   id: string
@@ -22,15 +23,15 @@ interface State {
 
 function read(): State {
   try {
-    return JSON.parse(fs.readFileSync(STATE_PATH, 'utf-8'))
+    return JSON.parse(fs.readFileSync(statePath(), 'utf-8'))
   } catch {
     return {}
   }
 }
 
 function write(state: State): void {
-  fs.mkdirSync(path.dirname(STATE_PATH), { recursive: true })
-  fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2))
+  fs.mkdirSync(path.dirname(statePath()), { recursive: true })
+  fs.writeFileSync(statePath(), JSON.stringify(state, null, 2))
 }
 
 // ── Multi-task API ───────────────────────────────────────────────
@@ -65,6 +66,8 @@ export function clearAllActiveTasks(): void {
 // ── Legacy single-task API (backward compat) ─────────────────────
 
 export function getActiveTask(): ActiveTask | undefined {
+  const work = getWorkSession()
+  if (work) return { id: work.taskId, title: work.title, url: work.url, setAt: work.createdAt }
   return getActiveTasks()[0]
 }
 
@@ -116,6 +119,8 @@ export function getWatchedMRs(): string[] {
 // ── Context API ──────────────────────────────────────────────────
 
 export function getContext(): string {
+  const work = getWorkSession()
+  if (work) return work.context
   return read().context || ''
 }
 

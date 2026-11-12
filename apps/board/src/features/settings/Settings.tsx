@@ -60,11 +60,15 @@ interface Props {
   onCredentialsChanged: () => void
 }
 
+/** Estado del vaciado de caché. Pide confirmación antes de borrar. */
+type ResetState = 'idle' | 'confirming' | 'working' | 'done'
+
 export function Settings({ onClose, onCredentialsChanged }: Props) {
   const [status, setStatus] = useState<CredentialStatus[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [checks, setChecks] = useState<Record<string, Check>>({})
   const [saving, setSaving] = useState<string | null>(null)
+  const [reset, setReset] = useState<ResetState>('idle')
 
   const refresh = useCallback(async () => {
     const result = await ipc.credentialStatus()
@@ -222,6 +226,54 @@ export function Settings({ onClose, onCredentialsChanged }: Props) {
             </section>
           )
         })}
+
+        <section className="settings-source">
+          <div className="settings-source-head">
+            <span className="settings-source-name">Caché local</span>
+          </div>
+          <p className="settings-help">
+            Guarda issues y actividad traídos de las APIs. Es desechable: al vaciarla,
+            la siguiente sincronización la reconstruye igual.{' '}
+            <strong>Los todos no están aquí</strong> — viven en el vault y no se tocan.
+          </p>
+
+          <div className="settings-row">
+            {reset === 'confirming' ? (
+              <>
+                <span className="settings-help settings-confirm">¿Vaciar la caché?</span>
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    setReset('working')
+                    await ipc.resetCache()
+                    setReset('done')
+                    // Se resincroniza en el acto para no dejar la vista vacía.
+                    onCredentialsChanged()
+                  }}
+                >
+                  Sí, vaciar
+                </button>
+                <button className="btn" onClick={() => setReset('idle')}>
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn"
+                disabled={reset === 'working'}
+                onClick={() => setReset('confirming')}
+              >
+                {reset === 'working' ? 'Vaciando…' : 'Vaciar y reconstruir'}
+              </button>
+            )}
+          </div>
+
+          {reset === 'done' && (
+            <p className="settings-check ok">
+              <span className="dot dot-green" /> Caché vaciada y sincronizando de nuevo
+            </p>
+          )}
+        </section>
       </div>
     </div>
   )

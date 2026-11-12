@@ -111,12 +111,22 @@ impl Sidecar {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, SourceError> {
+        self.call_with_timeout(method, params, Duration::from_secs(60)).await
+    }
+
+    /// Igual que `call`, para consultas que recorren muchas páginas del proveedor.
+    pub async fn call_with_timeout(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, SourceError> {
         let response = self
             .http
             .post(format!("http://127.0.0.1:{}/rpc", self.port))
             .bearer_auth(&self.token)
             .json(&serde_json::json!({ "method": method, "params": params }))
-            .timeout(Duration::from_secs(60))
+            .timeout(timeout)
             .send()
             .await
             .map_err(|e| {

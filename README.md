@@ -181,6 +181,109 @@ Al cambiar de contexto, todas las capturas, tasks y recaps van a la carpeta corr
   personal/{journals,tasks,recaps}            ← contexto personal
 ```
 
+### Trabajar en varias tareas con worktrees y Herdr
+
+Cada tarea puede tener un worktree, una rama y un espacio de Herdr independientes.
+Las capturas y el checklist ejecutados desde esa carpeta (o sus subcarpetas)
+usan su ticket y su contexto del vault, aunque cambie la tarea activa global.
+
+```bash
+# Primero compila el CLI y shared; abre Herdr en otra terminal si vas a usarlo:
+pnpm build
+
+# Una carpeta y una sesión por ticket; --base es la rama destino del MR:
+brain work GCD-1134 --repo /ruta/proyecto --base origin/dev --agent claude
+brain work GCD-1199 --repo /ruta/proyecto --base origin/dev --agent codex
+
+# El mismo comando retoma el worktree y enfoca su espacio, sin duplicarlos:
+brain work GCD-1134 --repo /ruta/proyecto
+brain work list
+
+# Desde la carpeta que imprime el comando:
+brain note "el filtro requiere un índice"  # queda asociado a su ticket
+brain task --check "agregar prueba"       # también usa el ticket del worktree
+brain todo "revisar paginación" --task GCD-1199  # override explícito
+
+# También funciona sin Herdr y para tareas personales:
+brain work VAN-01 --repo /ruta/proyecto --base main --personal "cotización" --no-herdr
+```
+
+Herdr debe estar instalado en el `PATH`, con su servidor/sesión en ejecución.
+`--agent` admite `claude` y `codex`: inicia el agente, le pide leer el contexto
+del ticket y esperar instrucciones. Sin esa opción abre un shell. Para recuperar
+la conversación nativa tras reiniciar Herdr, instala previamente la integración
+del agente (`herdr integration install claude` o `herdr integration install codex`).
+Consulta la [referencia oficial de Herdr](https://herdr.dev/tui/docs/cli-reference/).
+
+Opciones adicionales:
+
+- `--branch feature/GCD-1134`: usa una rama existente o crea esa rama desde `--base`.
+- `--descriptor nombre-corto`: controla el sufijo de la carpeta del worktree
+  (`<repo>-<descriptor>`). Por defecto es el ticket en minúsculas
+  (`GCD-1134` → `mi-repo-gcd-1134`), igual que la convención manual
+  `<repo>-<descriptor>` que ya se usa a mano en varios workspaces. Es
+  independiente de `--branch`: uno nombra la carpeta, el otro la rama.
+- `--context work`: fija un contexto de `VAULT_CONTEXTS` al crear el worktree.
+  Si se omite, fija el contexto actual/default. Cambiar el contexto global después
+  no cambia el de las tareas ya abiertas.
+- `--session nombre`: elige una sesión local de Herdr. Brain guarda la conexión
+  para que retomar/cerrar apunte a esa misma sesión.
+- `BRAIN_WORKTREES_DIR=/ruta/worktrees`: cambia el directorio padre donde se crea
+  `<repo>-<descriptor>`. Por defecto es el directorio que ya contiene al
+  repositorio (hermano directo, sin subcarpetas por hash).
+
+Si la carpeta `<repo>-<descriptor>` ya existe como worktree real de Git (por
+ejemplo porque el registro de Brain se perdió, o porque otro agente ya la creó),
+`brain work` la detecta y la reutiliza en vez de fallar — nunca ejecuta
+`git worktree add` dos veces sobre la misma rama. Si esa misma carpeta ya está
+registrada bajo otro ticket, o está bloqueada en Git, lo rechaza con un error
+explícito en vez de pisarla. Usa `brain work discover` para ver qué hay en un
+repositorio antes de decidir, y `brain work import <ticket> --worktree <ruta>`
+para registrar a mano un worktree que no está en la ubicación convencional.
+
+La descripción y los comentarios recientes de Jira, junto con las notas y el
+checklist existentes, se guardan como snapshot en `~/.brain-log/work/<id>.md`.
+Retomar una tarea reutiliza ese snapshot y no requiere volver a consultar Jira.
+No se copian automáticamente archivos `.env`, dependencias ni cambios pendientes
+del checkout original. Configura cada worktree según las necesidades del proyecto.
+
+#### Cerrar y eliminar un worktree
+
+La limpieza ocurre **al ejecutar `brain work close`**, no al cambiar de tarea
+ni al limpiar la lista de tareas activas. No cambia el estado del ticket en Jira.
+
+```bash
+# Ejecuta desde fuera del worktree que vas a eliminar:
+git -C /ruta/proyecto fetch origin   # actualiza la referencia destino tras el merge
+brain work close GCD-1134 --repo /ruta/proyecto --check
+brain work close GCD-1134 --repo /ruta/proyecto
+brain work list --all               # incluye el historial de cierres
+```
+
+El cierre exige que el worktree siga en su ruta y rama registradas, no esté
+bloqueado, no tenga cambios ni archivos sin seguimiento **o ignorados** (incluidos
+`.env` y `node_modules`), y que sus cambios estén integrados en la rama destino.
+Reconoce merge, cherry-pick y squash cuando una fusión virtual confirma que no
+añadiría cambios al destino; esa comprobación de squash requiere Git 2.38+.
+Si no puede comprobarlo, conserva el worktree.
+
+Antes de cerrar un espacio Herdr, todos sus paneles deben haber vuelto al shell:
+sal del agente incluso si está idle y detén los servidores/tests. Si Herdr no
+responde o no permite verificar los procesos, Brain conserva el worktree. Esta
+verificación cubre el espacio Herdr registrado; detén también cualquier proceso
+que hayas iniciado por fuera. No ejecutes el cierre desde el panel que vas a cerrar.
+
+Brain cierra el espacio Herdr y ejecuta `git worktree remove` sin `--force`.
+**Conserva la rama, las notas del vault, el snapshot y el historial.** No hace
+`push`, no borra ramas y no elimina otros worktrees ajenos al registro.
+Si Herdr falla al abrir, el checkout queda registrado: vuelve a ejecutar `brain work`
+para retomarlo. Un registro ilegible o una operación concurrente bloquean las
+mutaciones; el error indica el archivo a revisar, sin sobrescribirlo.
+
+El CLI sigue usando la tarea activa global fuera de los worktrees registrados.
+La extensión/API y los botones del board todavía no eligen sesiones Herdr ni
+worktrees; usa los comandos anteriores desde la terminal.
+
 ### Ver el día
 
 ```bash
@@ -213,7 +316,7 @@ brain task --sync                          # sincronizar estados desde Jira
 brain task VAN-01 --new "revisar cotización de mármol"
 ```
 
-Puedes tener **múltiples tareas activas** simultáneamente. Cada captura se vincula automáticamente a todas las activas, o puedes especificar una con `--task GCD-XXX`.
+Puedes tener **múltiples tareas activas** simultáneamente. Dentro de un worktree registrado, cada captura usa su ticket. Fuera de esos worktrees usa la primera tarea activa; puedes especificar otra con `--task GCD-XXX`.
 
 Al activar una tarea se crea automáticamente su página `.md` en el vault (`tasks/GCD-1154.md`).
 
@@ -517,6 +620,9 @@ cd packages/shared && pnpm test:watch
 
 # Desde la raíz del repo
 pnpm --filter @brain-log/shared test
+
+# Flujo completo del CLI en repositorios y vault temporales (sin Jira/Herdr reales)
+pnpm --filter brain-log test
 ```
 
 Output esperado:
@@ -581,7 +687,7 @@ brain task GCD-1134             # activa tarea principal
 brain task GCD-1199             # activa segunda tarea
 brain task --active             # ver todas las activas
 
-# Durante el día — capturas se vinculan a todas las tareas activas
+# Durante el día — usa el ticket del worktree, o la primera activa fuera de él
 brain note "cambié el middleware de autenticación"
 brain todo "escribir tests para el nuevo endpoint"
 brain learn "los hooks de React se ejecutan en orden de definición"
