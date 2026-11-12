@@ -4,6 +4,7 @@ const fsMocks = vi.hoisted(() => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
   readFile: vi.fn().mockRejectedValue(new Error('not found')),
   writeFile: vi.fn().mockResolvedValue(undefined),
+  appendFile: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('fs/promises', () => ({
@@ -31,8 +32,8 @@ describe('MarkdownProvider', () => {
       date: '2026-05-21',
     })
 
-    expect(fsMocks.writeFile).toHaveBeenCalled()
-    const [, contenidoEscrito] = fsMocks.writeFile.mock.calls[0]
+    expect(fsMocks.appendFile).toHaveBeenCalled()
+    const [, contenidoEscrito] = fsMocks.appendFile.mock.calls[0]
     expect(contenidoEscrito).toContain('## 2026-05-21')
     expect(contenidoEscrito).toContain('📝 arreglé el bug del cherry-pick #note')
   })
@@ -47,7 +48,7 @@ describe('MarkdownProvider', () => {
       date: '2026-05-21',
     })
 
-    const [, contenido] = fsMocks.writeFile.mock.calls[0]
+    const [, contenido] = fsMocks.appendFile.mock.calls[0]
     expect(contenido).toContain('☑️ revisar el schema de workorders #todo')
   })
 
@@ -62,7 +63,7 @@ describe('MarkdownProvider', () => {
       taskId: 'GCD-1134',
     })
 
-    const [, contenido] = fsMocks.writeFile.mock.calls[0]
+    const [, contenido] = fsMocks.appendFile.mock.calls[0]
     expect(contenido).toContain('[[GCD-1134]]')
   })
 
@@ -80,9 +81,9 @@ describe('MarkdownProvider', () => {
       date: '2026-05-21',
     })
 
-    const [, contenido] = fsMocks.writeFile.mock.calls[0]
-    const ocurrencias = (contenido.match(/## 2026-05-21/g) || []).length
-    expect(ocurrencias).toBe(1)
+    const [, contenido] = fsMocks.appendFile.mock.calls[0]
+    expect(contenido).not.toContain('## 2026-05-21')
+    expect(contenido).toContain('nueva nota')
   })
 
   it('escribe el recap con las tres secciones', async () => {

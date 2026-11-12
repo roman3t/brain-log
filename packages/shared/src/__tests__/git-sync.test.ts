@@ -4,10 +4,20 @@ vi.mock('child_process', () => ({
   exec: vi.fn((cmd, opts, callback) => callback(null, '', '')),
 }))
 
+vi.mock('fs', () => ({ existsSync: vi.fn(() => true) }))
+
 import { gitSync } from '../providers/notes/git-sync'
 import { exec } from 'child_process'
+import { existsSync } from 'fs'
 
 describe('gitSync', () => {
+
+  it('no ejecuta comandos si el vault no tiene .git', async () => {
+    vi.mocked(exec).mockClear()
+    vi.mocked(existsSync).mockReturnValueOnce(false)
+    await gitSync('/fake/vault')
+    expect(exec).not.toHaveBeenCalled()
+  })
 
   it('ejecuta git add, commit y push en el vault path', async () => {
     vi.mocked(exec).mockClear()

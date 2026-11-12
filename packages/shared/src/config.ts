@@ -69,6 +69,10 @@ function parseContexts(raw: string): Record<string, string> {
 }
 
 export function validateConfig() {
+  if (config.notes.default === 'markdown') {
+    if (!config.markdown.vaultPath) throw new Error('MARKDOWN_VAULT_PATH no configurado en ~/.brain-log/.env')
+    return
+  }
   const missing: string[] = []
   if (!config.notion.token) missing.push('NOTION_TOKEN')
   if (!config.notion.databases.captures) missing.push('NOTION_CAPTURES_DB')
